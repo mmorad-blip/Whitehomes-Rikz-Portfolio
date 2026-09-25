@@ -90,3 +90,19 @@ def test_conflict_with_stored_data_rejects_the_upload(store, tmp_path):
 def test_recalculate_is_idempotent(store):
     store.ingest(read(AW + PAIR_24), "upload")
     assert store.recalculate().status == "unchanged"
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="needs PostgreSQL (TEST_DATABASE_URL)")
+def test_postgres_private_schema_and_row_level_security(tmp_path):
+    from sqlalchemy import text
+
+    url = os.environ["TEST_DATABASE_URL"]
+    engine = make_engine(url, schema="rikz_test")
+    with engine.begin() as c:
+        c.exec_driver_sql('DROP SCHEMA IF EXISTS "rikz_test" CASCADE')
+    st = Store(init_db(engine, "rikz_test"), FileStore(tmp_path / "files"))
+    assert st.ingest(read(AW + PAIR_24), "upload").snapshot_version == 1
+    with engine.connect() as c:
+        rows = c.execute(text("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n "
+                              "on n.oid = c.relnamespace where n.nspname = 'rikz_test' and c.relkind = 'r'")).all()
+    assert len(rows) == 9 and all(r[1] for r in rows)

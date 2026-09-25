@@ -1,0 +1,43 @@
+# Stack for Supabase: the database is Supabase Postgres and the statement
+# files live in a private Supabase Storage bucket, so this server keeps no
+# data of its own. Settings come from .env (see .env.example, Supabase part).
+#   docker compose -f docker-compose.supabase.yml up -d
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FILE_STORE: supabase
+      RIKZ_TRUSTED_PROXIES: "*"   # only Caddy can reach this container
+    volumes:
+      - ./config:/app/config:ro
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["rikz", "worker", "--interval", "600"]
+    env_file: .env
+    environment:
+      FILE_STORE: supabase
+    volumes:
+      - ./config:/app/config:ro
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RIKZ_DOMAIN: ${RIKZ_DOMAIN:?set RIKZ_DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  caddy_data:
+  caddy_config:

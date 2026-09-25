@@ -78,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("recalc", help="rebuild the report from stored statements (after a settings change)")
     sub.add_parser("snapshots", help="list stored report versions")
     sub.add_parser("verify-store", help="re-hash every stored file")
+    ex = sub.add_parser("export-store", help="copy every stored statement file into a folder (for backups)")
+    ex.add_argument("folder", type=Path)
+    im = sub.add_parser("import-store", help="load statement files from a folder made by export-store")
+    im.add_argument("folder", type=Path)
     mk = sub.add_parser("make-keys", help="generate the two private links' tokens and access keys")
     mk.add_argument("--role", choices=["shareholder", "admin", "both"], default="both",
                     help="rotate one role's link and key, or create both")
@@ -119,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
                     proxy_headers=True, forwarded_allow_ips=os.environ.get("RIKZ_TRUSTED_PROXIES", "127.0.0.1"),
                     access_log=False, server_header=False)
         return 0
-    if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
+    if args.cmd in ("ingest", "recalc", "snapshots", "verify-store", "export-store", "import-store"):
         return _store_cmd(args)
     if args.cmd == "worker":
         return _worker(args)
@@ -185,9 +189,32 @@ def _check_config(args) -> int:
             s.execute(__import__("sqlalchemy").text("select 1"))
         ok(f"database reachable ({env.database_url.split('@')[-1]})")
         probe = store.files.put(b"rikz check-config probe")
-        ok(f"file store writable ({env.file_store_dir}); probe {probe[:8]}")
+        where = (f"Supabase bucket {env.supabase_bucket!r}, private" if env.file_store == "supabase"
+                 else str(env.file_store_dir))
+        ok(f"file store writable ({where}); probe {probe[:8]}")
         if env.database_url.startswith("sqlite"):
             lines.append("  note  SQLite in use; PostgreSQL is recommended for the live site")
+        else:
+            from sqlalchemy import text as _text
+
+            from .store.db import is_supabase
+
+            schema = env.database_schema or "public"
+            with store.Session() as s:
+                rows = s.execute(_text(
+                    "select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+                    "where n.nspname = :schema and c.relkind = 'r'"), {"schema": schema}).all()
+            if rows and all(r[1] for r in rows):
+                ok(f"{len(rows)} tables in schema {schema!r}, row-level security on")
+            else:
+                bad(f"row-level security is off on: {', '.join(r[0] for r in rows if not r[1]) or 'no tables found'}")
+            if is_supabase(env.database_url):
+                if schema == "public":
+                    bad("on Supabase the tables must not be in the public schema (its web API exposes it); "
+                        "unset DATABASE_SCHEMA or set it to rikz")
+                if env.file_store != "supabase":
+                    lines.append("  note  statement files are on this server's disk; FILE_STORE=supabase keeps "
+                                 "them in Supabase Storage instead")
     except Exception as exc:  # noqa: BLE001
         bad(f"storage: {type(exc).__name__}: {exc}")
     try:
@@ -341,6 +368,32 @@ def _store_cmd(args) -> int:
     from .store.db import Snapshot
 
     store = open_store()
+    if args.cmd == "export-store":
+        from .store.db import StoredFile
+
+        args.folder.mkdir(parents=True, exist_ok=True)
+        with store.Session() as s:
+            shas = [f.sha256 for f in s.scalars(select(StoredFile))]
+        for sha in shas:
+            (args.folder / sha).write_bytes(store.files.get(sha))  # get() checks the hash
+        print(f"exported {len(shas)} stored files to {args.folder}")
+        return 0
+    if args.cmd == "import-store":
+        import hashlib as _h
+
+        n = bad = 0
+        for p in sorted(args.folder.iterdir()):
+            if not p.is_file() or len(p.name) != 64:
+                continue
+            data = p.read_bytes()
+            if _h.sha256(data).hexdigest() != p.name:
+                print(f"skipped {p.name[:12]}: content does not match its name")
+                bad += 1
+                continue
+            store.files.put(data)
+            n += 1
+        print(f"imported {n} files" + (f", skipped {bad} damaged" if bad else ""))
+        return 0 if not bad else 1
     if args.cmd == "verify-store":
         bad = store.files.verify_all()
         print("all stored files match their hashes" if not bad else f"CORRUPT: {', '.join(b[:12] for b in bad)}")

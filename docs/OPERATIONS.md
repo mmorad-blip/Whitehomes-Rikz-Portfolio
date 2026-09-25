@@ -38,6 +38,54 @@ Give the shareholders the **shareholder link** and the **shareholder access
 key**, using different channels (for example, the link by email and the key
 by phone or in person). The key is never emailed by the system.
 
+## 2b. Running on Supabase instead
+
+Supabase hosts the database and the statement files. Your server then only
+runs the website and the worker, and keeps no data of its own.
+
+1. **Create the Supabase project.** Choose the region closest to Saudi Arabia
+   whose data-residency terms you accept, and set a strong database password.
+2. **Fill in `.env` (Option B in `.env.example`):**
+   - `DATABASE_URL`: under *Connect → Session pooler* (port 5432). The
+     transaction pooler (port 6543) also works.
+   - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`: under *Project Settings →
+     API*. The service-role key bypasses Supabase's access rules, so keep it
+     only in `.env` on the server.
+3. **Run the setup:**
+
+   ```bash
+   docker compose -f docker-compose.supabase.yml build
+   docker compose -f docker-compose.supabase.yml run --rm web rikz make-keys
+   docker compose -f docker-compose.supabase.yml run --rm web rikz check-config --smtp --drive
+   docker compose -f docker-compose.supabase.yml up -d
+   ```
+
+How the data is protected on Supabase:
+
+- **Tables** go in their own `rikz` schema. Supabase's automatic web API
+  publishes only the `public` schema, and `check-config` fails if the tables
+  would land there.
+- **Row-level security** is switched on for every table, with no policies. The
+  anonymous and signed-in API roles can read nothing, and only the app's own
+  database user sees the data.
+- **Statement files** are in a private bucket (`statements`). The app refuses to
+  start if that bucket is public. Files are still content-addressed, written
+  once, and checked against their SHA-256 on every read.
+- **Supabase Auth** isn't used. Access stays the two private links with their
+  access keys.
+
+**Backups:** use `scripts/backup-supabase.sh`. It dumps the `rikz` schema,
+exports every statement file through `rikz export-store`, and saves the
+config. Restore with `pg_restore` into the schema, then
+`rikz import-store <folder>`.
+
+**Moving an existing install to Supabase:**
+
+1. Run `rikz export-store /tmp/files` on the old server.
+2. `pg_dump` the old database and `pg_restore` it into the `rikz` schema.
+3. Switch `.env` to Option B.
+4. Run `rikz import-store /tmp/files`, then `rikz verify-store`.
+
 ## 3. Routine
 
 - **New statements:** either upload them on the admin page, or put them in the
@@ -67,7 +115,7 @@ ends immediately.
 
 ## 5. Backups
 
-`scripts/backup.sh` backs up the database, the statement files and the config
+`scripts/backup.sh` (bundled database) or `scripts/backup-supabase.sh` (Supabase) backs up the database, the statement files and the config
 into `BACKUP_DIR`. Run it nightly from cron and copy the folder off the
 server:
 
