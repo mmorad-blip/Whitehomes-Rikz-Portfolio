@@ -5,16 +5,20 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+import json
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
-from ..store.db import Snapshot, ViewLog
+from ..store.db import Batch, DriveFile, Job, Snapshot, ViewLog, get_meta
 from . import views
 from .auth import AccessConfig, check_key
 
 HERE = Path(__file__).parent
+MAX_FILES = 60
+MAX_FILE_BYTES = 25 * 1024 * 1024
 COOKIE = {"shareholder": "rikz_v", "admin": "rikz_a"}
 
 
@@ -153,5 +157,76 @@ def create_app(store, access: AccessConfig) -> FastAPI:
         name = f"rikz-portfolio-report-v{snap.version}-{snap.as_of}.pdf"
         return Response(data, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    # -- admin -------------------------------------------------------------
+    def need_admin(request, area, token):
+        role, session, redirect = need_session(request, area, token)
+        if role != "admin":
+            raise HTTPException(404)
+        return session, redirect
+
+    def check_csrf(session, value: str) -> None:
+        import hmac
+
+        if not value or not hmac.compare_digest(value, access.csrf_token(session)):
+            raise HTTPException(400, "The form expired; reload the page and try again.")
+
+    def admin_context(request, session, result=None) -> dict:
+        from sqlalchemy import select as sel
+
+        with store.Session() as s:
+            batches = s.scalars(sel(Batch).order_by(Batch.id.desc()).limit(30)).all()
+            snaps = s.scalars(sel(Snapshot).order_by(Snapshot.version.desc()).limit(30)).all()
+            snap_rows = [(x.version, x.as_of, x.created_at, x.coverage, x.headline, len(x.changes)) for x in snaps]
+            views_ = s.scalars(sel(ViewLog).order_by(ViewLog.id.desc()).limit(50)).all()
+            drive = s.scalars(sel(DriveFile).order_by(DriveFile.seen_at.desc()).limit(30)).all()
+            jobs = s.scalars(sel(Job).where(Job.status != "done").order_by(Job.id.desc()).limit(30)).all()
+        last = get_meta(store.Session, "drive_last_result")
+        return {
+            "role": "admin", "base": base_url("admin"), "csrf": access.csrf_token(session), "result": result,
+            "batches": batches, "snapshots": snap_rows, "views": views_, "drive_files": drive, "jobs": jobs,
+            "drive_last_poll": get_meta(store.Session, "drive_last_poll"),
+            "drive_last_error": get_meta(store.Session, "drive_last_error"),
+            "drive_last": json.loads(last) if last else None,
+            "links": {"shareholder": access.link("shareholder"), "admin": access.link("admin")},
+        }
+
+    @app.get("/{area}/{token}/admin", response_class=HTMLResponse)
+    def admin(request: Request, area: str, token: str):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        log_view(request, "admin", None)
+        return templates.TemplateResponse(request, "admin.html", admin_context(request, session))
+
+    @app.post("/{area}/{token}/upload", response_class=HTMLResponse)
+    async def upload(request: Request, area: str, token: str, files: list[UploadFile] = File(...),
+                     csrf: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        if len(files) > MAX_FILES:
+            raise HTTPException(413, f"Upload at most {MAX_FILES} files at a time.")
+        payload = []
+        for f in files:
+            data = await f.read(MAX_FILE_BYTES + 1)
+            if len(data) > MAX_FILE_BYTES:
+                raise HTTPException(413, f"{f.filename} is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB.")
+            if data:
+                payload.append((Path(f.filename or "upload").name, data))
+        if not payload:
+            raise HTTPException(400, "No files were attached.")
+        result = store.ingest(payload, source="upload")
+        return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
+
+    @app.post("/{area}/{token}/recalc", response_class=HTMLResponse)
+    def recalc(request: Request, area: str, token: str, csrf: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        result = store.recalculate(source="upload")
+        return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
 
     return app

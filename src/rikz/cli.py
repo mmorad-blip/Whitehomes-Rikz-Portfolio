@@ -81,6 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     mk = sub.add_parser("make-keys", help="generate the two private links' tokens and access keys")
     mk.add_argument("--role", choices=["shareholder", "admin", "both"], default="both",
                     help="rotate one role's link and key, or create both")
+    wk = sub.add_parser("worker", help="poll Google Drive and run background jobs")
+    wk.add_argument("--once", action="store_true", help="one round, then exit (for cron)")
+    wk.add_argument("--interval", type=int, default=600, help="seconds between rounds (default 600)")
     sv = sub.add_parser("serve", help="run the website")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -103,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
         return _store_cmd(args)
+    if args.cmd == "worker":
+        return _worker(args)
     try:
         rule = load_mandate(args.mandate)
         ledger = load_ledger(args.ledger)
@@ -126,6 +131,31 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     _print_batch(batch, rule)
     return 0
+
+
+def _worker(args) -> int:
+    import logging
+    import os
+
+    from .env import open_store
+    from .ingest.drive import GoogleDrive
+    from .ingest.worker import drive_folders, run_forever, run_once
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    store = open_store()
+    _attach_notifier(store)
+    drive = GoogleDrive.from_env() if os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") and drive_folders() else None
+    if drive is None:
+        logging.getLogger("rikz.worker").info("Drive watcher off (DRIVE_FOLDER_IDS / GOOGLE_SERVICE_ACCOUNT_JSON not set)")
+    if args.once:
+        print(run_once(store, drive=drive))
+        return 0
+    run_forever(store, args.interval, drive=drive)
+    return 0
+
+
+def _attach_notifier(store) -> None:
+    """Phase 6 hooks e-mail notifications in here."""
 
 
 def _make_keys(role: str) -> int:

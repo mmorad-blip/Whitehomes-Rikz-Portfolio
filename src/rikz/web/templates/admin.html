@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Admin – Rikz Portfolio{% endblock %}
+{% block body %}
+<header class="top"><div class="wrap">
+  <div><h1>Rikz Portfolio – admin</h1><div class="muted small">Upload statements, see what was accepted or rejected, and who looked at the report.</div></div>
+  <nav><a href="{{ base }}">Report</a><a href="{{ base }}logout">Sign out</a></nav>
+</div></header>
+<main class="wrap">
+
+{% if result %}
+<div class="panel" style="border-color:{{ 'var(--bad)' if result.status == 'rejected' else 'var(--good)' }}">
+  <h2 style="margin-top:0">
+  {% if result.status == "rejected" %}Rejected – nothing from this upload was imported
+  {% elif result.snapshot_version %}Accepted – report v{{ result.snapshot_version }} created
+  {% elif result.status == "unchanged" %}Accepted – the report did not change
+  {% else %}Accepted{% endif %}</h2>
+  {% for r in result.reasons %}<p class="error">{{ r }}</p>{% endfor %}
+  {% if result.notes %}<ul class="small">{% for n in result.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+  {% if result.changes %}<h3>Changes</h3><ul class="small">{% for c in result.changes %}<li>{{ c.text }}</li>{% endfor %}</ul>
+  <p><a href="{{ base }}?v={{ result.snapshot_version }}">Open report v{{ result.snapshot_version }}</a></p>{% endif %}
+</div>
+{% endif %}
+
+<h2>Upload statements</h2>
+<div class="panel">
+  <form method="post" action="upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><input type="file" name="files" multiple required accept=".pdf,.xlsx"></p>
+    <p class="muted small">Awaed murabaha confirmations (PDF) any time. A Manafa portfolio export must be uploaded together with the account statement downloaded the same day. An upload is accepted whole or rejected whole, with the reason.</p>
+    <p><button type="submit">Upload</button></p>
+  </form>
+  <form method="post" action="recalc" style="margin-top:8px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" style="background:var(--muted)">Recalculate from stored statements</button>
+    <span class="muted small">after a change to the settings, ledger or mandate files</span>
+  </form>
+</div>
+
+<h2>Recent uploads</h2>
+<div class="panel table-wrap"><table>
+<tr><th>#</th><th>When (UTC)</th><th>Source</th><th>Status</th><th>Files</th><th>Details</th><th>Report</th></tr>
+{% for b in batches %}<tr><td>{{ b.id }}</td><td>{{ b.created_at.strftime("%Y-%m-%d %H:%M") }}</td><td>{{ b.source }}</td>
+<td><span class="badge {{ 'bad' if b.status == 'rejected' else 'ok' if b.status == 'accepted' else 'info' }}">{{ b.status }}</span></td>
+<td style="white-space:normal;text-align:left">{{ b.file_names|length }}{% if b.file_names %}<div class="muted small">{{ b.file_names[:4]|join(", ") }}{% if b.file_names|length > 4 %} …{% endif %}</div>{% endif %}</td>
+<td style="white-space:normal;text-align:left" class="small">{% for r in b.reasons %}<div class="{{ 'error' if b.status == 'rejected' }}">{{ r }}</div>{% endfor %}{% for n in (b.notes or [])[:3] %}<div class="muted">{{ n }}</div>{% endfor %}</td>
+<td>{% if b.snapshot_id %}created{% endif %}</td></tr>
+{% else %}<tr><td colspan="7" class="muted">No uploads yet.</td></tr>{% endfor %}
+</table></div>
+
+<h2>Report versions</h2>
+<div class="panel table-wrap"><table>
+<tr><th>Version</th><th>As of</th><th>Created (UTC)</th><th>Coverage</th><th>NAV</th><th>Changes</th></tr>
+{% for ver, as_of, created, cov, head, n in snapshots %}<tr><td><a href="{{ base }}?v={{ ver }}">v{{ ver }}</a></td><td>{{ as_of }}</td><td>{{ created.strftime("%Y-%m-%d %H:%M") }}</td>
+<td class="small">Manafa to {{ cov.manafa.statement_to }}, {{ cov.awaed.confirmations }} Awaed</td><td>{{ head["total.nav"]|sar }}</td><td>{{ n }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No report yet.</td></tr>{% endfor %}
+</table></div>
+
+<h2>Google Drive</h2>
+<div class="panel small">
+{% if drive_last_poll %}<p>Last checked {{ drive_last_poll[:16].replace("T", " ") }} UTC{% if drive_last %}: {{ drive_last.found }} files in the folders, {{ drive_last.new }} new{% if drive_last.waiting %}, waiting: {{ drive_last.waiting|join(", ") }}{% endif %}{% endif %}.</p>
+{% else %}<p class="muted">The Drive watcher has not run yet (set DRIVE_FOLDER_IDS and GOOGLE_SERVICE_ACCOUNT_JSON, and run the worker).</p>{% endif %}
+{% if drive_last_error %}<p class="error">Last error: {{ drive_last_error }}</p>{% endif %}
+{% if drive_files %}<div class="table-wrap"><table><tr><th>File</th><th>Seen (UTC)</th><th>Status</th><th>Note</th></tr>
+{% for f in drive_files %}<tr><td>{{ f.name }}</td><td>{{ f.seen_at.strftime("%Y-%m-%d %H:%M") }}</td><td>{{ f.status }}</td><td style="white-space:normal;text-align:left">{{ f.note or "" }}</td></tr>{% endfor %}
+</table></div>{% endif %}
+</div>
+
+{% if jobs %}<h2>Pending or failed background jobs</h2>
+<div class="panel table-wrap"><table><tr><th>#</th><th>Kind</th><th>Status</th><th>Attempts</th><th>Last error</th></tr>
+{% for j in jobs %}<tr><td>{{ j.id }}</td><td>{{ j.kind }}</td><td>{{ j.status }}</td><td>{{ j.attempts }}</td><td style="white-space:normal;text-align:left" class="small">{{ j.last_error or "" }}</td></tr>{% endfor %}
+</table></div>{% endif %}
+
+<h2>Report views</h2>
+<div class="panel table-wrap"><table><tr><th>When (UTC)</th><th>Who</th><th>Page</th><th>Version</th><th>Visitor</th><th>Browser</th></tr>
+{% for v in views %}<tr><td>{{ v.at.strftime("%Y-%m-%d %H:%M") }}</td><td>{{ v.role }}</td><td>{{ v.path }}</td><td>{{ v.snapshot_version or "" }}</td><td class="mono">{{ v.client }}</td><td style="white-space:normal;text-align:left" class="small">{{ v.user_agent[:60] }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No views yet.</td></tr>{% endfor %}
+</table><p class="muted small">"Visitor" is a keyed hash of the address, so repeat visits can be counted without storing IP addresses.</p></div>
+
+<h2>Links</h2>
+<div class="panel small">
+<p>Shareholder link: <span class="mono">{{ links.shareholder }}</span></p>
+<p>Admin link: <span class="mono">{{ links.admin }}</span></p>
+<p class="muted">Access keys are stored only as hashes and cannot be shown. To change a key (and its link), run <span class="mono">rikz make-keys --role shareholder</span> or <span class="mono">--role admin</span> and update the server's environment.</p>
+</div>
+</main>
+{% endblock %}

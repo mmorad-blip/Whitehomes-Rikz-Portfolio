@@ -120,3 +120,48 @@ def test_charts_render_literal_colours_for_pdf():
     svg = bars(["Jan"], [("Awaed", [1]), ("Manafa", [2])], stacked=True, literal=True)
     assert "var(" not in svg and "#1f5f8b" in svg
     assert "var(--c2" in share_bar([("Wallet cash", 5)])
+
+
+def admin_login(client):
+    assert login(client, "a", ADMIN, "ADMIN-5678").status_code == 303
+
+
+def csrf_of(page: str) -> str:
+    return re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+
+
+def test_admin_page_and_upload(client, store):
+    admin_login(client)
+    page = client.get(f"/a/{ADMIN}/admin").text
+    assert "Upload statements" in page and f"/v/{VIEW}/" in page and "Report versions" in page
+    token = csrf_of(page)
+    pdf = AWAED / "01-murabaha_confirmation.pdf"
+    r = client.post(f"/a/{ADMIN}/upload", data={"csrf": token},
+                    files=[("files", (pdf.name, pdf.read_bytes(), "application/pdf"))])
+    assert r.status_code == 200 and "the report did not change" in r.text  # already stored
+    lone = MANAFA / "2026-09-24_portfolio.xlsx"
+    r = client.post(f"/a/{ADMIN}/upload", data={"csrf": token},
+                    files=[("files", (lone.name, lone.read_bytes(), "application/octet-stream"))])
+    assert "Rejected – nothing from this upload was imported" in r.text and "no date of its own" in r.text
+
+
+def test_admin_forms_need_csrf(client):
+    admin_login(client)
+    pdf = AWAED / "01-murabaha_confirmation.pdf"
+    r = client.post(f"/a/{ADMIN}/upload", data={"csrf": "forged"},
+                    files=[("files", (pdf.name, pdf.read_bytes(), "application/pdf"))])
+    assert r.status_code == 400
+    assert client.post(f"/a/{ADMIN}/recalc", data={}).status_code == 400
+
+
+def test_shareholders_cannot_reach_admin(client):
+    login(client, "v", VIEW, "SHARE-1234")
+    assert client.get(f"/v/{VIEW}/admin").status_code == 404
+    assert client.post(f"/v/{VIEW}/upload", data={"csrf": "x"}).status_code in (404, 422)
+
+
+def test_recalc_from_admin(client):
+    admin_login(client)
+    token = csrf_of(client.get(f"/a/{ADMIN}/admin").text)
+    r = client.post(f"/a/{ADMIN}/recalc", data={"csrf": token})
+    assert r.status_code == 200 and "did not change" in r.text
