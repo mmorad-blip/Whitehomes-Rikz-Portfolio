@@ -1,0 +1,43 @@
+# Calculation settings and the investment policy the report measures against.
+# Every value here is printed in the report's assumptions section.
+
+[calculation]
+days_per_year = 365
+# Credit provision as a share of outstanding principal. Accounting view: 100%
+# on defaulted notes until cash is recovered. The recovery view (0% loss) is
+# always shown next to it.
+provision_default = "1.00"
+provision_delay = "0.00"
+# Include pro-rata net profit earned to date on open positions in NAV.
+accrue_open_profit = true
+# Window for "due in the next N days".
+upcoming_days = 30
+# Forecast: expected loss per Manafa cycle (0 = guarantees cover defaults).
+forecast_loss_per_cycle = "0.00"
+# PLACEHOLDER: latest 3-month SAIBOR published by SAMA. Update before reporting.
+benchmark_saibor = "0.05"
+benchmark_is_placeholder = true
+# Idle-cash flag in the Awaed chain: days from maturity to the next deposit.
+awaed_idle_days = 3
+
+[policy]
+budget_whitehomes = "215000"
+budget_rikz = "35000"
+target_return_low = "0.10"
+target_return_high = "0.14"
+
+[policy.allocation]
+awaed = "0.40"
+manafa = "0.60"
+tier3 = "0.00"
+
+[policy.expected_return]
+# Expected annual return band per channel (policy allocation schedule).
+awaed = ["0.037", "0.047"]
+manafa = ["0.09", "0.15"]
+
+[policy.limits]
+max_single_manafa_position = "0.12"   # of Manafa NAV
+max_troubled_exposure = "0.05"        # delayed + defaulted principal before provision, of total NAV
+max_idle_cash = "0.10"                # of total NAV
+min_liquidity = "0.20"                # cash + maturing within 30 days, of total NAV

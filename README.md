@@ -14,8 +14,8 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Parsers and domain model | **this PR** |
-| 2 | Calculation engine (XIRR, NAV, yields, credit, ladder, forecast, policy) | next |
+| 1 | Parsers and domain model | done |
+| 2 | Calculation engine (XIRR, NAV, yields, credit, ladder, forecast, policy) | done |
 | 3 | Storage and versioned snapshots (Postgres, content-addressed files) | |
 | 4 | Dashboard website and PDF report | |
 | 5 | Ingestion triggers (upload page, Google Drive watcher) | |
@@ -56,6 +56,36 @@ non-zero.
 * **Batches are all-or-nothing.** A rejected file rejects the whole batch with
   a plain-English reason. A portfolio export has no date of its own, so it's
   only accepted together with the account statement from the same day.
+
+## Phase 2: the calculation engine
+
+```
+rikz report PORTFOLIO.xlsx STATEMENT.xlsx CONFIRMATION*.pdf          # text report
+rikz report ... --json                                              # everything, with traces
+```
+
+The engine follows the Excel model's definitions (`src/rikz/engine/metrics.py`)
+but takes every input from the statements:
+
+* **Returns by channel:** capital, fees, realised profit, principal by state,
+  provision, accrued income, wallet cash, NAV, net gain, XIRR (accounting and
+  recovery views), capital-weighted and average deal yield, utilisation and
+  idle cash.
+* **Other sections:** Manafa credit risk; exposure by rating; allocation vs
+  policy and capital by shareholder; realised income by period; liquidity
+  ladder; sensitivity to loss on defaults; one-year forecast; policy limit
+  checks; monthly table.
+* **Tracing:** every figure lists what it's built from (positions, ledger
+  lines, or other figures). Every position lists its export row and statement
+  rows.
+* **Excel comparison:** where a figure differs from the Excel V2.2 value
+  (`config/excel_reference.toml`), both are shown. Definitions that differ on
+  purpose keep an "Excel method" figure alongside: utilisation and recovered
+  share.
+* **Checks:** each wallet's statement-based balance is checked against the
+  estimate (contributed + realised − outstanding).
+* **Settings and policy** live in `config/settings.toml`, and every value is
+  printed in the report's assumptions.
 
 ## Rules this code follows
 

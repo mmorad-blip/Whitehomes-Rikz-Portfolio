@@ -1,0 +1,37 @@
+# Values from the hand-kept Excel model (Rikz_Portfolio_V2.2) as of 24 Sep 2026,
+# kept so the report can show the Excel figure beside the statement figure
+# wherever they differ. Figures only; the workbook itself is not in the repo.
+as_of = 2026-09-24
+source = "Rikz_Portfolio_V2.2.xlsx, Performance Review"
+
+[values]
+"total.nav" = "244849.99"
+"awaed.nav" = "102406.76"
+"manafa.nav" = "142443.23"
+"total.realised" = "8527.03"
+"awaed.realised" = "2324.20"
+"manafa.realised" = "6202.83"
+"total.accrued" = "1322.96"
+"total.wallet" = "97865.89"
+"total.net_gain" = "-5187.46"
+"total.xirr" = "-0.0300376263"
+"total.xirr_recovery" = "0.0575875340"
+"awaed.xirr" = "0.0338493838"
+"manafa.xirr" = "-0.0741719623"
+"manafa.xirr_recovery" = "0.0744098738"
+"total.cw_yield" = "0.0747345860"
+"awaed.cw_yield" = "0.0450819356"
+"manafa.cw_yield" = "0.0991778934"
+"awaed.avg_deal_yield" = "0.0410813382"
+"manafa.avg_deal_yield" = "0.1047532505"
+"total.utilisation_excel" = "0.8070896074"
+"total.idle" = "0.3996973524"
+"credit.default_rate_count" = "0.0454545455"
+"credit.default_rate_principal" = "0.0495049505"
+"credit.troubled_total_nav" = "0.0912278575"
+"credit.avg_days_late" = "10.3333333333"
+"credit.on_time_share" = "0.4705882353"
+"credit.fee_drag" = "0.2273728180"
+"credit.loss_cover" = "0.4135220000"
+"credit.break_even" = "0.5052081852"
+"forecast.total" = "0.0801487997"
