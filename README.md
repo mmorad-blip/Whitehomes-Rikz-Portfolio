@@ -238,6 +238,21 @@ Hardening in the app:
   file is damaged) and trims the view log (400 days) and sign-in log
   (30 days).
 
+## Supabase
+
+The site can run on Supabase: Postgres for the database and a private Storage
+bucket for the statement files. Set `DATABASE_URL` to the Supabase
+connection string, and `FILE_STORE=supabase` with `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. Then use `docker-compose.supabase.yml`.
+
+* **Tables** live in their own `rikz` schema, with row-level security on,
+  so Supabase's automatic web API can't reach them.
+* **The bucket must be private,** and the app refuses a public one.
+* `rikz export-store` and `rikz import-store` move statement files between
+  the two storage options and into backups.
+
+Setup and security notes are in [docs/OPERATIONS.md](docs/OPERATIONS.md#2b-running-on-supabase-instead).
+
 ## Rules this code follows
 
 * Statements are the source of truth. The Excel model was typed by hand and

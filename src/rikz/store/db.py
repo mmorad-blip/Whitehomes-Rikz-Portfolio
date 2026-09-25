@@ -159,17 +159,82 @@ def set_meta(Session, key: str, value: str) -> None:
         s.commit()
 
 
-def make_engine(url: str) -> Engine:
-    engine = create_engine(url, future=True, pool_pre_ping=True)
+SUPABASE_HOSTS = (".supabase.co", ".supabase.com")
+
+
+def normalize_url(url: str) -> tuple[str, dict]:
+    """Accept connection strings as providers print them.
+
+    * postgres:// and postgresql:// get the psycopg driver name.
+    * Supabase hosts require SSL.
+    * Supabase's transaction pooler (port 6543) cannot keep prepared
+      statements, so psycopg is told not to use them there.
+    """
+    from sqlalchemy.engine import make_url
+
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    u = make_url(url)
+    connect_args: dict = {}
+    if u.drivername.startswith("postgresql") and u.host and u.host.endswith(SUPABASE_HOSTS):
+        if "sslmode" not in u.query:
+            u = u.update_query_dict({"sslmode": "require"})
+        if u.port == 6543:
+            connect_args["prepare_threshold"] = None
+    return u.render_as_string(hide_password=False), connect_args
+
+
+def is_supabase(url: str) -> bool:
+    from sqlalchemy.engine import make_url
+
+    host = make_url(normalize_url(url)[0]).host or ""
+    return host.endswith(SUPABASE_HOSTS)
+
+
+def make_engine(url: str, schema: str | None = None) -> Engine:
+    """schema: keep every table in this PostgreSQL schema (e.g. "rikz").
+
+    On Supabase this keeps the tables out of the "public" schema that its
+    automatic web API exposes."""
+    url, connect_args = normalize_url(url)
+    engine = create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def _fk(dbapi_conn, _):
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    elif schema:
+        if not schema.isidentifier():
+            raise ValueError(f"invalid schema name {schema!r}")
+        engine = engine.execution_options(schema_translate_map={None: schema})
     return engine
 
 
-def init_db(engine: Engine) -> sessionmaker:
+def init_db(engine: Engine, schema: str | None = None) -> sessionmaker:
+    """Create the tables (in `schema` when given, which must match the one
+    passed to make_engine) and return a session factory."""
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            if schema:
+                conn.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
     Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        # Row-level security with no policies: roles other than the owner (the
+        # app) see nothing, e.g. Supabase's anon/authenticated API roles.
+        # Only the table owner may switch it on; if the app's user is not the
+        # owner, say so and carry on (`rikz check-config` reports the state).
+        from sqlalchemy.exc import DBAPIError
+
+        try:
+            with engine.begin() as conn:
+                for table in Base.metadata.sorted_tables:
+                    name = f'"{schema}"."{table.name}"' if schema else f'"{table.name}"'
+                    conn.exec_driver_sql(f"ALTER TABLE {name} ENABLE ROW LEVEL SECURITY")
+        except DBAPIError as exc:
+            import logging
+
+            logging.getLogger("rikz.store").warning("could not enable row-level security: %s", exc.orig)
     Session = sessionmaker(engine, expire_on_commit=False, future=True)
     with Session() as s:
         row = s.get(Meta, "schema_version")
