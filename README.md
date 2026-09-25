@@ -17,7 +17,7 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 | 1 | Parsers and domain model | done |
 | 2 | Calculation engine (XIRR, NAV, yields, credit, ladder, forecast, policy) | done |
 | 3 | Storage and versioned snapshots (Postgres, content-addressed files) | done |
-| 4 | Dashboard website and PDF report | |
+| 4 | Dashboard website and PDF report | done |
 | 5 | Ingestion triggers (upload page, Google Drive watcher) | |
 | 6 | Notifications (per-recipient links, email) | |
 | 7 | Hardening (access codes, view log, backups, monitoring) | |
@@ -114,6 +114,38 @@ rikz verify-store        # re-hash every stored file
 * **The report date** is the date of the latest Manafa statement that came
   with its portfolio export. Awaed confirmations dated later are stored and
   count from the next statement date.
+
+## Phase 4: the website and PDF
+
+```
+rikz make-keys           # prints the two private links' tokens + access keys (once) and the env lines
+export RIKZ_SECRET_KEY=... RIKZ_VIEW_TOKEN=... RIKZ_VIEW_KEY_HASH=... RIKZ_ADMIN_TOKEN=... RIKZ_ADMIN_KEY_HASH=...
+export RIKZ_PUBLIC_URL=https://report.example.com
+rikz serve --host 0.0.0.0 --port 8000
+```
+
+* **Two private links, each behind its own access key.**
+  `<RIKZ_PUBLIC_URL>/v/<token>/` is for shareholders.
+  `<RIKZ_PUBLIC_URL>/a/<token>/` is for the admin (uploads come in phase 5).
+  A wrong token gives a plain 404. Keys are stored only as scrypt hashes in
+  environment variables. Sessions use a signed, HttpOnly, SameSite=Strict
+  cookie scoped to its own link.
+* **Pages read only stored snapshots,** never a live calculation:
+  * *Dashboard:* changes since the last report, key figures (with the Excel
+    value where it differs), NAV composition, realised profit by month,
+    returns by channel, policy checks, credit risk, rating exposure,
+    allocation and capital by shareholder, liquidity, income by period,
+    sensitivity, forecast, monthly table, reconciliation and notes, and
+    assumptions.
+  * *Positions:* every position with the statement rows behind it.
+  * *PDF:* the same template, rendered by WeasyPrint.
+* **Period selector:** lists every report version with its as-of date. The
+  header shows the statement coverage of the version you're viewing.
+* **No external assets:** charts are server-side SVG, and there are no
+  scripts. Pages follow the device's light or dark mode and work at phone
+  width.
+* **View log:** records each page view with role, page, report version and a
+  keyed hash of the visitor's address. IP addresses are never stored.
 
 ## Rules this code follows
 

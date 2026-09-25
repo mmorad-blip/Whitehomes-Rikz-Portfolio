@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in – Rikz Portfolio{% endblock %}
+{% block body %}
+<div class="login">
+  <div class="panel">
+    <h1>Rikz Portfolio</h1>
+    <p class="muted small">{{ "Shareholder report" if role == "shareholder" else "Administration" }}. Enter the access key you were given.</p>
+    <form method="post" action="login">
+      {% if csrf %}<input type="hidden" name="csrf" value="{{ csrf }}">{% endif %}
+      <p><input name="key" type="password" autocomplete="current-password" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" required style="width:100%"></p>
+      {% if error %}<p class="error small">{{ error }}</p>{% endif %}
+      <p><button type="submit">Open</button></p>
+    </form>
+  </div>
+</div>
+{% endblock %}

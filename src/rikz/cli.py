@@ -78,11 +78,29 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("recalc", help="rebuild the report from stored statements (after a settings change)")
     sub.add_parser("snapshots", help="list stored report versions")
     sub.add_parser("verify-store", help="re-hash every stored file")
+    mk = sub.add_parser("make-keys", help="generate the two private links' tokens and access keys")
+    mk.add_argument("--role", choices=["shareholder", "admin", "both"], default="both",
+                    help="rotate one role's link and key, or create both")
+    sv = sub.add_parser("serve", help="run the website")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000)
     rp.add_argument("--mandate", type=Path)
     rp.add_argument("--ledger", type=Path)
     rp.add_argument("--settings", type=Path)
     args = ap.parse_args(argv)
 
+    if args.cmd == "make-keys":
+        return _make_keys(args.role)
+    if args.cmd == "serve":
+        import uvicorn
+
+        from .env import open_store
+        from .web.app import create_app
+        from .web.auth import AccessConfig
+
+        uvicorn.run(create_app(open_store(), AccessConfig.from_env()), host=args.host, port=args.port,
+                    proxy_headers=True, forwarded_allow_ips="*")
+        return 0
     if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
         return _store_cmd(args)
     try:
@@ -107,6 +125,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Rejected: {exc}", file=sys.stderr)
         return 2
     _print_batch(batch, rule)
+    return 0
+
+
+def _make_keys(role: str) -> int:
+    import secrets
+
+    from .web.auth import hash_key, new_key, new_token
+
+    roles = ["shareholder", "admin"] if role == "both" else [role]
+    env = {"shareholder": ("RIKZ_VIEW_TOKEN", "RIKZ_VIEW_KEY_HASH"), "admin": ("RIKZ_ADMIN_TOKEN", "RIKZ_ADMIN_KEY_HASH")}
+    print("# Put these in the server's environment (secret store). They are not saved anywhere else.")
+    if role == "both":
+        print(f"RIKZ_SECRET_KEY={secrets.token_urlsafe(48)}")
+    keys = {}
+    for r in roles:
+        token, key = new_token(), new_key()
+        keys[r] = (token, key)
+        print(f"{env[r][0]}={token}")
+        print(f"{env[r][1]}={hash_key(key)}")
+    print()
+    print("# Hand these out; they are shown only now. Links need RIKZ_PUBLIC_URL in front.")
+    for r, (token, key) in keys.items():
+        area = "v" if r == "shareholder" else "a"
+        print(f"{r:<12} link: <RIKZ_PUBLIC_URL>/{area}/{token}/   access key: {key}")
     return 0
 
 
