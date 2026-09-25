@@ -80,4 +80,7 @@ non-zero.
    1,000 SAR investments in OID-2782-346299 on the same day.
 5. Unpaid profit on a delayed note stays expected until paid. No write-off while guarantees stand.
 6. Troubled exposure = delayed + defaulted principal before provision ÷ total NAV.
-7. The capital ledger (`config/capital_ledger.toml`) is kept by hand until bank statements are ingested.
+7. An Awaed deposit matures on its maturity date. From then its principal and
+   return are realised and held as wallet cash until a later confirmation shows
+   them rolled over.
+8. The capital ledger (`config/capital_ledger.toml`) is kept by hand until bank statements are ingested.

@@ -33,3 +33,11 @@ def test_missing_confirmation_shows_as_shortfall(awaed, ledger):
     c = build(without_16, ledger, date(2026, 9, 24))
     short = [g for g in c.gaps if g.kind == "shortfall"]
     assert short and short[0].date == date(2026, 8, 12)
+
+
+def test_matured_deposit_is_wallet_cash_until_rolled(awaed, ledger):
+    c = build(awaed, ledger, date(2026, 9, 24))
+    last = c.gaps[-1]
+    assert last.kind == "uninvested" and last.date == date(2026, 9, 22)
+    assert "102,406.57 SAR held as wallet cash" in last.detail
+    assert [d.order_id for d in c.matured][-1] == "170816"

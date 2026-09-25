@@ -15,6 +15,10 @@ Nothing is plugged. Where the confirmations do not chain, the gap is flagged:
   next deposit;
 * uninvested at as-of: a deposit matured, no later confirmation exists and
   the money is still in the wallet.
+
+A deposit is taken to have matured on its maturity date: its principal and
+return count as realised and sit in the wallet as cash until a later
+confirmation shows them rolled into a new deposit.
 """
 
 from __future__ import annotations
@@ -115,8 +119,9 @@ def build(
         if nxt is None:
             gaps.append(
                 Gap("uninvested", d.maturity, d.principal + d.total_return,
-                    f"order {d.order_id} matured on {d.maturity:%d %b %Y}; no later confirmation, so the "
-                    f"proceeds are taken as wallet cash on {as_of:%d %b %Y}")
+                    f"order {d.order_id} matured on {d.maturity:%d %b %Y} and is not yet rolled over: "
+                    f"{d.principal + d.total_return:,.2f} SAR held as wallet cash on {as_of:%d %b %Y} "
+                    "until a new confirmation is uploaded")
             )
         elif (nxt - d.maturity).days > idle_days:
             gaps.append(
