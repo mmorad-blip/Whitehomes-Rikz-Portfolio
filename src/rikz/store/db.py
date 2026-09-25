@@ -36,6 +36,7 @@ class Batch(Base):
     source: Mapped[str] = mapped_column(String(16))  # upload | drive | cli
     status: Mapped[str] = mapped_column(String(16))  # accepted | rejected | unchanged
     reasons: Mapped[list] = mapped_column(JSON, default=list)
+    notes: Mapped[list] = mapped_column(JSON, default=list)
     file_names: Mapped[list] = mapped_column(JSON, default=list)
     file_hashes: Mapped[list] = mapped_column(JSON, default=list)
     snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("snapshot.id"), nullable=True)
@@ -123,6 +124,22 @@ class DriveFile(Base):
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     status: Mapped[str] = mapped_column(String(16), default="waiting")  # waiting | ingested | rejected
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+def get_meta(Session, key: str, default: str | None = None) -> str | None:
+    with Session() as s:
+        row = s.get(Meta, key)
+        return row.value if row else default
+
+
+def set_meta(Session, key: str, value: str) -> None:
+    with Session() as s:
+        row = s.get(Meta, key)
+        if row is None:
+            s.add(Meta(key=key, value=value))
+        else:
+            row.value = value
+        s.commit()
 
 
 def make_engine(url: str) -> Engine:

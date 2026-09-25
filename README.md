@@ -18,7 +18,7 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 | 2 | Calculation engine (XIRR, NAV, yields, credit, ladder, forecast, policy) | done |
 | 3 | Storage and versioned snapshots (Postgres, content-addressed files) | done |
 | 4 | Dashboard website and PDF report | done |
-| 5 | Ingestion triggers (upload page, Google Drive watcher) | |
+| 5 | Ingestion triggers (upload page, Google Drive watcher) | done |
 | 6 | Notifications (per-recipient links, email) | |
 | 7 | Hardening (access codes, view log, backups, monitoring) | |
 
@@ -146,6 +146,39 @@ rikz serve --host 0.0.0.0 --port 8000
   width.
 * **View log:** records each page view with role, page, report version and a
   keyed hash of the visitor's address. IP addresses are never stored.
+
+## Phase 5: getting statements in
+
+**Admin upload.** The admin link opens the report, plus an **Admin** page. It has:
+
+* multi-file upload (CSRF-protected, at most 60 files of 25 MB each);
+* "Recalculate from stored statements", for after a settings, ledger or
+  mandate change;
+* recent uploads with their status and reasons;
+* report versions, Google Drive status, pending jobs, and the view log.
+
+**Google Drive watcher** (`rikz worker`, every 10 minutes by default; use
+`--once` for cron):
+
+```
+export DRIVE_FOLDER_IDS=<folder id>,<folder id>        # sub-folders are included
+export GOOGLE_SERVICE_ACCOUNT_JSON='{...}'              # read-only; share the folders with its e-mail
+export RIKZ_DRIVE_WAIT_HOURS=48                        # optional
+```
+
+* **Each Drive file is fetched once,** and native Google Sheets are exported
+  as xlsx.
+* **Awaed confirmations** found together are ingested together. If they fail
+  the checks as a group, each is tried on its own.
+* **Manafa pairing:** a portfolio export is paired with the account statement
+  uploaded closest in time that passes the cross-checks. A pairing attempt
+  that fails is not recorded.
+* **Waiting files:** an export whose statement hasn't arrived waits, and is
+  rejected with its reason after `RIKZ_DRIVE_WAIT_HOURS`. A statement
+  without its export waits the same way.
+* **Failures:** a Drive failure (network, permissions) is logged, shown on
+  the admin page and retried next round. Background jobs retry with back-off
+  (2, 4, 8 … minutes, up to 8 attempts).
 
 ## Rules this code follows
 

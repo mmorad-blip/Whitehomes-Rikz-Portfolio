@@ -38,6 +38,19 @@ class Store:
         self.Session = Session
         self.files = files
         self.config_dir = config_dir
+        # Called with (IngestResult, source) after every upload or recalculation,
+        # e.g. to queue e-mails. A failing listener never undoes the upload.
+        self.listeners: list = []
+
+    def _emit(self, result: "IngestResult", source: str) -> "IngestResult":
+        for fn in self.listeners:
+            try:
+                fn(result, source)
+            except Exception:  # noqa: BLE001 - notification problems must not affect ingestion
+                import logging
+
+                logging.getLogger("rikz.store").exception("listener failed")
+        return result
 
     # -- configuration -------------------------------------------------------
     def _config(self):
@@ -49,7 +62,25 @@ class Store:
         return {n: (self.config_dir / n).read_text("utf8") for n in CONFIG_FILES}
 
     # -- ingest --------------------------------------------------------------
+    def check(self, files: list[tuple[str, bytes]]) -> list[str]:
+        """Parse and cross-check files without storing or recording anything.
+        Returns the rejection reasons (empty when the files would be accepted
+        on their own)."""
+        rule, ledger, _ = self._config()
+        try:
+            parse_batch(files, rule=rule, ledger=ledger)
+        except BatchRejected as exc:
+            return [str(r) for r in exc.reasons]
+        return []
+
     def ingest(self, files: list[tuple[str, bytes]], source: str) -> IngestResult:
+        return self._emit(self._ingest(files, source), source)
+
+    def recalculate(self, source: str = "cli") -> IngestResult:
+        """Rebuild the report from what is stored (e.g. after a settings change)."""
+        return self._emit(self._recalc(source), source)
+
+    def _ingest(self, files: list[tuple[str, bytes]], source: str) -> IngestResult:
         rule, ledger, settings = self._config()
         names = [n for n, _ in files]
         hashes = [hashlib.sha256(b).hexdigest() for _, b in files]
@@ -74,6 +105,7 @@ class Store:
             if not new_records:
                 s.rollback()
                 return self._record(source, names, hashes, "unchanged", [], notes + ["no new statements in this upload"])
+            b.notes = notes
 
             data = dict(files)
             by_sha = {hashlib.sha256(v).hexdigest(): v for v in data.values()}
@@ -90,12 +122,12 @@ class Store:
             except Rejected as exc:
                 s.rollback()
                 return self._reject(s, source, names, hashes, [str(exc)])
-            s.commit()
             result.notes = notes + result.notes
+            b.notes = result.notes
+            s.commit()
             return result
 
-    def recalculate(self, source: str = "cli") -> IngestResult:
-        """Rebuild the report from what is stored (e.g. after a settings change)."""
+    def _recalc(self, source: str) -> IngestResult:
         rule, ledger, settings = self._config()
         with self.Session() as s:
             b = Batch(source=source, status="accepted", file_names=[], file_hashes=[], reasons=["recalculation"])
@@ -106,6 +138,7 @@ class Store:
             except Rejected as exc:
                 s.rollback()
                 return self._reject(s, source, [], [], [str(exc)])
+            b.notes = result.notes
             s.commit()
             return result
 
@@ -115,7 +148,7 @@ class Store:
 
     def _record(self, source, names, hashes, status, reasons, notes) -> IngestResult:
         with self.Session() as s:
-            b = Batch(source=source, status=status, file_names=names, file_hashes=hashes, reasons=reasons)
+            b = Batch(source=source, status=status, file_names=names, file_hashes=hashes, reasons=reasons, notes=notes)
             s.add(b)
             s.commit()
             return IngestResult(b.id, status, reasons, notes)
