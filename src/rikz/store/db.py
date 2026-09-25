@@ -113,6 +113,23 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
+class Notification(Base):
+    """One e-mail to one recipient. Shareholder notices are sent once per
+    report version unless the admin sends again."""
+
+    __tablename__ = "notification"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    audience: Mapped[str] = mapped_column(String(16))  # shareholder | admin
+    kind: Mapped[str] = mapped_column(String(32))  # report | rejected | drive_error | job_failed
+    snapshot_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recipient: Mapped[str] = mapped_column(String(255))
+    subject: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(16), default="queued")  # queued | sent | failed
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class DriveFile(Base):
     """Drive files already picked up, so each is fetched once."""
 
