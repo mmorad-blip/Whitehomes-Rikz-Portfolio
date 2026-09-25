@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
+from functools import lru_cache
 
 from .. import dates
 from ..errors import Rejected
@@ -26,6 +28,13 @@ REQUIRED = {
 
 
 def pdf_text(data: bytes) -> str:
+    # Extraction is the slow part of parsing and depends only on the bytes, so
+    # it is cached by content hash (the store re-parses files on every recalc).
+    return _pdf_text(hashlib.sha256(data).hexdigest(), data)
+
+
+@lru_cache(maxsize=1024)
+def _pdf_text(_sha: str, data: bytes) -> str:
     import pdfplumber
 
     try:
