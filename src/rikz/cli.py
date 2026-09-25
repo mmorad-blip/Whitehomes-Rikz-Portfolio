@@ -13,7 +13,9 @@ from decimal import Decimal
 from pathlib import Path
 
 from .batch import BatchRejected, parse_batch
-from .config import load_ledger, load_mandate
+from .config import load_ledger, load_mandate, load_settings
+from .engine.render import load_excel_reference, to_json, to_text
+from .engine.run import report_from_batch
 from .errors import Rejected
 from .manafa.mandate import in_mandate
 from .money import fmt
@@ -67,13 +69,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--as-of", type=date.fromisoformat, help="as-of date (defaults to the statement end)")
     p.add_argument("--mandate", type=Path, help="mandate rule file (default config/mandate.toml)")
     p.add_argument("--ledger", type=Path, help="capital ledger file (default config/capital_ledger.toml)")
+    rp = sub.add_parser("report", help="compute the portfolio report from a full upload batch")
+    rp.add_argument("files", nargs="+", type=Path)
+    rp.add_argument("--json", action="store_true", help="print the report as JSON")
+    rp.add_argument("--no-excel", action="store_true", help="do not show Excel V2.2 values alongside")
+    rp.add_argument("--mandate", type=Path)
+    rp.add_argument("--ledger", type=Path)
+    rp.add_argument("--settings", type=Path)
     args = ap.parse_args(argv)
 
     try:
         rule = load_mandate(args.mandate)
         ledger = load_ledger(args.ledger)
         files = [(f.name, f.read_bytes()) for f in args.files]
-        batch = parse_batch(files, rule=rule, ledger=ledger, as_of=args.as_of)
+        batch = parse_batch(files, rule=rule, ledger=ledger, as_of=getattr(args, "as_of", None))
+        if args.cmd == "report":
+            settings = load_settings(args.settings)
+            report = report_from_batch(batch, rule=rule, ledger=ledger, settings=settings)
+            excel = {} if args.no_excel else load_excel_reference()
+            if excel and report.as_of.isoformat() != "2026-09-24":
+                excel = {}  # the reference values are for one date only
+            print(to_json(report, settings, excel) if args.json else to_text(report, settings, excel))
+            return 0
     except BatchRejected as exc:
         print("Rejected. Nothing from this batch was imported:", file=sys.stderr)
         for r in exc.reasons:

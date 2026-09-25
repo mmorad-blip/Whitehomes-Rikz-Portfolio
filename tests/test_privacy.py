@@ -14,7 +14,7 @@ from conftest import AWAED, FIXTURES, MANAFA
 
 ROOT = Path(__file__).resolve().parents[1]
 IBAN = re.compile(r"SA\d{2}\s?(?:\d{4}\s?){4}\d{4}|SA\d{22}")
-SAUDI_ID = re.compile(r"(?<!\d)[12]\d{9}(?!\d)")
+SAUDI_ID = re.compile(r"(?<![\d.])[12]\d{9}(?!\d)")
 # 15-digit VAT numbers allowed in fixtures: the redaction placeholder and
 # Awaed's own published VAT number from its footer.
 ALLOWED_VAT = {"300000000000003", "311514457500003"}

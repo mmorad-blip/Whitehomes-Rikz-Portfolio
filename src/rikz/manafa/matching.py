@@ -230,7 +230,13 @@ def match(export: PortfolioExport, statement: AccountStatement) -> Matching:
     search(0, frozenset(), frozenset(), 0, {})
     if not solutions:
         raise Rejected("the closed positions cannot all be matched to distinct repayments on the statement")
-    chosen = solutions[0]
+    # Among equally good assignments, prefer the one where notes that mature
+    # earlier are also paid earlier (fewest crossings). Totals are identical.
+    def crossings(sol: dict) -> int:
+        paid = [(p.maturity, settles[c[0]].date) for oid, ps in closed_by_oid.items() for p, c in zip(ps, sol[oid])]
+        return sum(1 for a in paid for b in paid if a[0] < b[0] and a[1] > b[1])
+
+    chosen = min(solutions, key=crossings)
 
     varying = sorted(o for o in options if any(s[o] != chosen[o] for s in solutions))
     interchangeable = _group_interchangeable(varying, closed_by_oid, chosen, solutions, settles)
