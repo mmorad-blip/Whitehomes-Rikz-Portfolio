@@ -73,11 +73,18 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("files", nargs="+", type=Path)
     rp.add_argument("--json", action="store_true", help="print the report as JSON")
     rp.add_argument("--no-excel", action="store_true", help="do not show Excel V2.2 values alongside")
+    ip = sub.add_parser("ingest", help="store an upload batch and update the snapshot series")
+    ip.add_argument("files", nargs="+", type=Path)
+    sub.add_parser("recalc", help="rebuild the report from stored statements (after a settings change)")
+    sub.add_parser("snapshots", help="list stored report versions")
+    sub.add_parser("verify-store", help="re-hash every stored file")
     rp.add_argument("--mandate", type=Path)
     rp.add_argument("--ledger", type=Path)
     rp.add_argument("--settings", type=Path)
     args = ap.parse_args(argv)
 
+    if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
+        return _store_cmd(args)
     try:
         rule = load_mandate(args.mandate)
         ledger = load_ledger(args.ledger)
@@ -101,6 +108,39 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     _print_batch(batch, rule)
     return 0
+
+
+def _store_cmd(args) -> int:
+    from sqlalchemy import select
+
+    from .env import open_store
+    from .store.db import Snapshot
+
+    store = open_store()
+    if args.cmd == "verify-store":
+        bad = store.files.verify_all()
+        print("all stored files match their hashes" if not bad else f"CORRUPT: {', '.join(b[:12] for b in bad)}")
+        return 0 if not bad else 1
+    if args.cmd == "snapshots":
+        with store.Session() as s:
+            for snap in s.scalars(select(Snapshot).order_by(Snapshot.version)):
+                cov = snap.coverage
+                print(f"v{snap.version}  as of {snap.as_of}  created {snap.created_at:%Y-%m-%d %H:%M}  "
+                      f"Manafa statement to {cov['manafa']['statement_to']}, "
+                      f"{cov['awaed']['confirmations']} Awaed confirmations  NAV {Decimal(snap.headline['total.nav']):,.2f}")
+        return 0
+    if args.cmd == "recalc":
+        res = store.recalculate()
+    else:
+        res = store.ingest([(f.name, f.read_bytes()) for f in args.files], source="cli")
+    print(f"batch {res.batch_id}: {res.status}" + (f", report version {res.snapshot_version}" if res.snapshot_version else ""))
+    for r in res.reasons:
+        print(f"  rejected: {r}")
+    for n in res.notes:
+        print(f"  note: {n}")
+    for c in res.changes:
+        print(f"  change: {c['text']}")
+    return 2 if res.status == "rejected" else 0
 
 
 if __name__ == "__main__":

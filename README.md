@@ -16,7 +16,7 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 |---|---|---|
 | 1 | Parsers and domain model | done |
 | 2 | Calculation engine (XIRR, NAV, yields, credit, ladder, forecast, policy) | done |
-| 3 | Storage and versioned snapshots (Postgres, content-addressed files) | |
+| 3 | Storage and versioned snapshots (Postgres, content-addressed files) | done |
 | 4 | Dashboard website and PDF report | |
 | 5 | Ingestion triggers (upload page, Google Drive watcher) | |
 | 6 | Notifications (per-recipient links, email) | |
@@ -86,6 +86,34 @@ but takes every input from the statements:
   estimate (contributed + realised − outstanding).
 * **Settings and policy** live in `config/settings.toml`, and every value is
   printed in the report's assumptions.
+
+## Phase 3: storage and snapshots
+
+```
+export DATABASE_URL=postgresql+psycopg://user@host/rikz   # default: sqlite:///data/rikz.db
+export FILE_STORE_DIR=/srv/rikz/files                     # default: data/files
+rikz ingest FILES...     # store an upload and update the report series
+rikz recalc              # rebuild from stored statements after a settings change
+rikz snapshots           # list report versions with statement coverage
+rikz verify-store        # re-hash every stored file
+```
+
+* **Files** are stored once each under their SHA-256, are read-only on disk, and
+  are checked against the hash on every read.
+* **An upload is all-or-nothing.** It's parsed on its own first. Then the whole
+  report is rebuilt from everything stored, inside the same database
+  transaction. An upload that conflicts with stored data is rejected with its
+  reason, and nothing from it is kept.
+* **Each rebuild that changes the report writes a new snapshot.** A snapshot is
+  an immutable, numbered version. It holds the full report, the input file
+  hashes and config used, the statement coverage (Manafa statement period,
+  Awaed confirmations), headline figures, and "changes since last report".
+  The changes cover new statements, new or closed positions, status changes,
+  every headline figure that moved (old → new), and policy checks that
+  changed state.
+* **The report date** is the date of the latest Manafa statement that came
+  with its portfolio export. Awaed confirmations dated later are stored and
+  count from the next statement date.
 
 ## Rules this code follows
 
