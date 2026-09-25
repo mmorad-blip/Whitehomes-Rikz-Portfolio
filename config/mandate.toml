@@ -1,0 +1,8 @@
+# Which Manafa positions belong to the Whitehomes mandate.
+# The Manafa account also holds positions outside the mandate. A position is in
+# the mandate when it was funded on or after `funded_from` AND its principal is
+# at least `min_principal`. Edit here; the report prints the rule it used and a
+# reconciliation of mandate cash against the account balance.
+[manafa]
+funded_from = 2026-01-06
+min_principal = "5000.00"

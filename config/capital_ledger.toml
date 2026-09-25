@@ -1,0 +1,32 @@
+# Manual capital ledger: money sent from the Whitehomes bank account to each
+# platform, with the bank's transfer fee. Kept by hand until bank statements
+# are ingested. Amounts in SAR.
+[[contribution]]
+date = 2026-01-06
+channel = "manafa"
+amount = "75000.00"
+bank_fee = "8.05"
+
+[[contribution]]
+date = 2026-01-07
+channel = "awaed"
+amount = "75000.00"
+bank_fee = "8.05"
+
+[[contribution]]
+date = 2026-01-11
+channel = "awaed"
+amount = "25000.00"
+bank_fee = "8.05"
+
+[[contribution]]
+date = 2026-01-22
+channel = "manafa"
+amount = "40000.00"
+bank_fee = "8.05"
+
+[[contribution]]
+date = 2026-02-23
+channel = "manafa"
+amount = "35000.00"
+bank_fee = "5.25"
