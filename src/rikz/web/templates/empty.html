@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="login"><div class="panel"><h1>No report yet</h1>
+<p class="muted">The first report appears once a Manafa portfolio export and account statement of the same day have been uploaded.</p>
+{% if role == "admin" %}<p><a href="{{ base }}upload">Upload statements</a></p>{% endif %}</div></div>
+{% endblock %}

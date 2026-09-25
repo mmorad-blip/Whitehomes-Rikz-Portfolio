@@ -1,0 +1,25 @@
+<header class="top"><div class="wrap">
+  <div>
+    <h1>Whitehomes capital-market portfolio</h1>
+    <div class="muted small">Report v{{ snapshot.version }} · as of {{ snapshot.as_of.strftime("%d %b %Y") }} · SAR ·
+      Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} ·
+      {{ coverage.awaed.confirmations }} Awaed confirmations</div>
+  </div>
+  {% if not pdf %}
+  <nav>
+    <form method="get" action="{{ base }}">
+      <select name="v" onchange="this.form.submit()" aria-label="Report version">
+        {% for ver, as_of, cov in versions %}
+        <option value="{{ ver }}" {% if ver == snapshot.version %}selected{% endif %}>Report v{{ ver }} · as of {{ as_of.strftime("%d %b %Y") }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">Go</button></noscript>
+    </form>
+    <a href="{{ base }}?v={{ snapshot.version }}">Dashboard</a>
+    <a href="{{ base }}positions?v={{ snapshot.version }}">Positions</a>
+    <a href="{{ base }}report.pdf?v={{ snapshot.version }}">PDF</a>
+    {% if role == "admin" %}<a href="{{ base }}admin">Admin</a>{% endif %}
+    <a href="{{ base }}logout">Sign out</a>
+  </nav>
+  {% endif %}
+</div></header>

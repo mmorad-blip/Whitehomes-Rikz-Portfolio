@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Portfolio report v{{ snapshot.version }} – {{ snapshot.as_of }}{% endblock %}
+{% block extra_css %}{% if pdf %}
+@page{size:A4 landscape;margin:12mm 10mm}
+body{font-size:10.5px;background:#fff}
+.wrap{max-width:none;padding:0}
+header.top{border:0;padding:0 0 6px}
+h2{font-size:13px;margin:14px 0 6px;page-break-after:avoid}
+.panel,.kpi{border-radius:4px;padding:8px 10px}
+.kpi,.keep,tr{page-break-inside:avoid}
+.kpi .val{font-size:15px}
+th,td{padding:3px 5px}
+table{font-size:10px}
+.kpis{display:flex;gap:6px}
+.kpi{flex:1 1 0}
+svg.chart{max-height:150px}
+.changes .cgroup{display:inline-block;vertical-align:top;width:32%;margin-right:1%}
+.grid2{display:flex;gap:10px}
+.grid2>*{flex:1 1 0;min-width:0}
+.changes ul{columns:2;column-gap:24px;margin:0;padding-left:16px}
+.badge.ok{background:#e3f1e8}.badge.bad{background:#f8e1df}.badge.info{background:#eceff2}
+{% endif %}{% endblock %}
+{% block body %}
+{% include "_header.html" %}
+<main class="wrap">
+
+<h2>Changes since the last report</h2>
+<div class="changes">
+{% for title, items in change_groups %}<div class="cgroup"><h3>{{ title }}</h3><ul>
+{% for c in items %}<li>{{ c.text }}</li>{% endfor %}</ul></div>
+{% else %}<p>No changes.</p>{% endfor %}
+</div>
+
+<h2>Key figures</h2>
+<div class="kpis">
+{% for label, val, unit, key in kpis %}
+  <div class="kpi"><div class="label">{{ label }}</div><div class="val">{{ val|value(unit) }}</div>
+  {% if figs[key].excel is not none and (figs[key].excel - val)|abs > (0.005 if unit == "SAR" else 0.00005) %}<div class="xl">Excel V2.2: {{ figs[key].excel|value(unit) }}</div>{% endif %}</div>
+{% endfor %}
+</div>
+
+<div class="grid2">
+  <div class="panel keep"><h3>NAV composition</h3>{{ charts.nav|safe }}
+    <table class="legend-table">{% for name, col, val, share in legends.nav %}
+      <tr><td><span class="sw" style="background:{{ col }}"></span>{{ name }}</td><td>{{ val|sar }}</td><td>{{ share|pct(1) }}</td></tr>{% endfor %}
+    </table></div>
+  <div class="panel keep"><h3>Realised profit by month</h3>{{ charts.monthly|safe }}
+    <div class="legend">{% for name, col in legends.channels %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div></div>
+</div>
+
+<h2>Returns by channel</h2>
+<div class="panel table-wrap"><table>
+<tr><th>SAR unless stated</th><th>Awaed</th><th>Manafa</th><th>Total</th></tr>
+{% for m in returns_rows %}{% set f = figs.get("total." ~ m) or figs.get("manafa." ~ m) %}
+<tr class="{{ 'strong' if m in ('nav','xirr','realised') }}"><td>{{ f.label }}</td>
+{% for c in channels %}{% set g = figs.get(c ~ "." ~ m) %}
+<td>{% if g %}{{ g.value|value(g.unit) }}{% if g.excel is not none and (g.value is none or (g.excel - g.value)|abs > (0.005 if g.unit == "SAR" else 0.00005)) %}<div class="xl-cell">Excel {{ g.excel|value(g.unit) }}</div>{% endif %}{% endif %}</td>
+{% endfor %}</tr>
+{% endfor %}
+</table></div>
+
+<h2>Policy checks</h2>
+<div class="panel table-wrap"><table>
+<tr><th>Check</th><th>Actual</th><th>Limit / target</th><th>Status</th></tr>
+{% for r in tables.policy %}<tr><td>{{ r.check }}</td><td>{{ r.actual|pct }}</td><td>{{ r.limit }}</td>
+<td><span class="badge {{ 'bad' if r.status in ('BREACH','Below expected') else 'ok' if r.status in ('Within limit','Within range','Above expected') else 'info' }}">{{ r.status }}</span></td></tr>{% endfor %}
+</table></div>
+
+<h2>Credit risk – Manafa (Whitehomes mandate)</h2>
+<div class="panel table-wrap"><table>
+{% for k in credit_keys %}{% set f = figs[k] %}<tr><td>{{ f.label }}</td><td>{{ f.value|value(f.unit) }}{% if f.excel is not none and (f.excel - f.value)|abs > 0.00005 %}<div class="xl-cell">Excel {{ f.excel|value(f.unit) }}</div>{% endif %}</td></tr>{% endfor %}
+</table>
+{% if tables.troubled %}<h3>Overdue positions</h3><table><tr><th>Position</th><th>Status</th><th>Rating</th><th>Outstanding</th><th>Recovered</th><th>Maturity</th><th>Days past</th></tr>
+{% for t in tables.troubled %}<tr><td>{{ t.position }}</td><td>{{ t.status }}</td><td>{{ t.rating }}</td><td>{{ t.outstanding|sar }}</td><td>{{ t.recovered|sar }}</td><td>{{ t.maturity }}</td><td>{{ t.days_past_maturity }}</td></tr>{% endfor %}</table>{% endif %}
+</div>
+
+<div class="grid2">
+<div><h2>Exposure by rating</h2>
+<div class="panel table-wrap"><table><tr><th>Rating</th><th>Positions</th><th>Outstanding</th><th>Share</th><th>Realised</th><th>Yield</th></tr>
+{% for r in tables.ratings %}<tr><td>{{ r.rating }}</td><td>{{ r.positions }}</td><td>{{ r.outstanding|sar }}</td><td>{{ r.share|pct }}</td><td>{{ r.realised|sar }}</td><td>{{ r.cw_yield|pct }}</td></tr>{% endfor %}
+</table></div></div>
+<div><h2>Allocation vs policy</h2>
+<div class="panel">{{ charts.allocation|safe }}
+<div class="legend">{% for name, col in legends.allocation %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div>
+<div class="table-wrap"><table><tr><th>Sleeve</th><th>Target</th><th>Actual</th><th>Rebalance</th></tr>
+{% for r in tables.allocation %}<tr><td>{{ r.sleeve }}</td><td>{{ r.target_share|pct(0) }}</td><td>{{ r.actual_share|pct }}</td><td>{{ r.rebalance|sar(true) }}</td></tr>{% endfor %}
+{% for r in tables.capital_by_owner %}<tr><td>Capital – {{ r.owner }}</td><td>{{ r.budget|sar }}</td><td>{{ r.contributed|sar }}</td><td>{{ r.share|pct }}</td></tr>{% endfor %}
+</table></div></div></div>
+</div>
+
+<div class="grid2">
+<div><h2>Liquidity schedule</h2>
+<div class="panel">{{ charts.ladder|safe }}
+<div class="legend">{% for name, col in legends.ladder %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div>
+<div class="table-wrap"><table><tr><th>Bucket</th><th>Awaed</th><th>Manafa</th><th>Profit</th><th>Total</th><th>Cumulative</th></tr>
+{% for r in tables.liquidity %}<tr><td>{{ r.bucket }}</td><td>{{ r.awaed|sar }}</td><td>{{ r.manafa|sar }}</td><td>{{ r.profit|sar }}</td><td>{{ r.total|sar }}</td><td>{{ r.cumulative|sar }}</td></tr>{% endfor %}
+</table></div></div></div>
+<div><h2>Realised income by period</h2>
+<div class="panel table-wrap"><table><tr><th>Period</th><th>Awaed</th><th>Manafa</th><th>Total</th><th>Annualised on NAV</th></tr>
+{% for r in tables.income_by_period %}<tr><td>{{ r.period }}</td><td>{{ r.awaed|sar }}</td><td>{{ r.manafa|sar }}</td><td>{{ r.total|sar }}</td><td>{{ r.annualised_on_nav|pct }}</td></tr>{% endfor %}
+</table></div>
+<h2>Sensitivity – loss on defaulted principal</h2>
+<div class="panel table-wrap"><table><tr><th>Loss</th><th>Manafa NAV</th><th>Manafa return</th><th>Total return</th></tr>
+{% for r in tables.sensitivity %}<tr><td>{{ r.loss_on_defaulted|pct(0) }}</td><td>{{ r.manafa_nav|sar }}</td><td>{{ r.manafa_roc|pct }}</td><td>{{ r.total_roc|pct }}</td></tr>{% endfor %}
+</table></div></div>
+</div>
+
+<h2>Forecast – one year fully reinvested at historical yields</h2>
+<div class="panel table-wrap"><table><tr><th>Channel</th><th>Historical yield</th><th>Cycle (days)</th><th>Cycles / year</th><th>Annual return</th><th>Profit on capital</th></tr>
+{% for r in tables.forecast %}<tr><td>{{ r.channel|title }}</td><td>{{ r.yield|pct }}</td><td>{{ "%.1f"|format(r.cycle_days|float) }}</td><td>{{ "%.2f"|format(r.cycles|float) }}</td><td>{{ r.annual|pct }}</td><td>{{ r.profit|sar }}</td></tr>{% endfor %}
+{% for k in ("forecast.total", "forecast.manafa_share_needed") %}{% if figs.get(k) %}<tr class="strong"><td>{{ figs[k].label }}</td><td colspan="4"></td><td>{{ figs[k].value|pct }}</td></tr>{% endif %}{% endfor %}
+</table><p class="muted small">{{ figs["forecast.total"].note if figs.get("forecast.total") }}</p></div>
+
+<h2>Monthly</h2>
+<div class="panel table-wrap"><table><tr><th>Month</th><th>Contributed</th><th>Awaed realised</th><th>Manafa realised</th><th>Cumulative realised</th><th>Expected (open)</th><th>New Manafa</th><th>Principal maturing</th></tr>
+{% for r in tables.monthly %}<tr><td>{{ r.month[:7] }}</td><td>{{ r.contributed|sar }}</td><td>{{ r.awaed_realised|sar }}</td><td>{{ r.manafa_realised|sar }}</td><td>{{ r.cumulative_realised|sar }}</td><td>{{ r.expected_open|sar }}</td><td>{{ r.new_manafa|sar }}</td><td>{{ r.principal_maturing|sar }}</td></tr>{% endfor %}
+</table></div>
+
+<h2>Reconciliation, checks and notes</h2>
+<div class="panel"><ul class="notes small">
+{% for c in doc.checks %}<li>{{ c }}</li>{% endfor %}
+{% for n in notes_main %}<li>{{ n }}</li>{% endfor %}
+{% for n in awaed_gap_summary %}<li>{{ n }}</li>{% endfor %}
+</ul>
+{% if awaed_gaps and not pdf %}<details class="small"><summary>Awaed rollover detail ({{ awaed_gaps|length }} items)</summary><ul class="notes">
+{% for n in awaed_gaps %}<li>{{ n[6:] }}</li>{% endfor %}</ul></details>{% endif %}
+</div>
+
+<h2>Assumptions</h2>
+<div class="panel"><ol class="assume small">{% for a in doc.assumptions %}<li>{{ a }}</li>{% endfor %}</ol>
+{% if excel_rows %}<p class="muted small">"Excel" values are from the hand-kept model (V2.2) and are shown only where they differ from the statement-based figure.</p>{% endif %}</div>
+
+<p class="muted small">Every figure is built from platform statements; the Positions page lists the statement rows behind each position. Report v{{ snapshot.version }}, created {{ snapshot.created_at.strftime("%d %b %Y %H:%M") }} UTC.</p>
+</main>
+{% endblock %}

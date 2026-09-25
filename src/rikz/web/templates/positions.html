@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Positions – report v{{ snapshot.version }}{% endblock %}
+{% block body %}
+{% include "_header.html" %}
+<main class="wrap">
+<h2>Positions ({{ doc.holdings|length }})</h2>
+<p class="muted small">Every position with the statement lines it was built from. Manafa: Whitehomes mandate only.</p>
+<div class="panel table-wrap"><table>
+<tr><th>Position</th><th>Channel</th><th>State</th><th>Rating</th><th>Principal</th><th>Start</th><th>Maturity</th><th>Expected net</th><th>Realised net</th><th>Paid</th><th>Outstanding</th></tr>
+{% for h in doc.holdings|sort(attribute="start", reverse=true) %}
+<tr><td><details><summary>{{ h.ident }}</summary><div class="mono">{% for r in h.refs %}{{ r }}<br>{% endfor %}</div></details></td>
+<td>{{ h.channel|title }}</td><td>{{ h.state }}</td><td>{{ h.rating or "–" }}</td><td>{{ h.principal|sar }}</td><td>{{ h.start }}</td><td>{{ h.maturity }}</td>
+<td>{{ h.expected_net|sar }}</td><td>{{ h.realised_net|sar }}</td><td>{{ h.paid_on or "–" }}</td><td>{{ h.outstanding|sar }}</td></tr>
+{% endfor %}
+</table></div>
+</main>
+{% endblock %}
