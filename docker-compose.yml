@@ -1,0 +1,67 @@
+# Production stack: PostgreSQL, the website, the worker (Drive + e-mail) and
+# Caddy for HTTPS. Secrets live in .env (see .env.example), never in git.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rikz
+      POSTGRES_USER: rikz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rikz -d rikz"]
+      interval: 10s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://rikz:${POSTGRES_PASSWORD}@db/rikz
+      FILE_STORE_DIR: /data/files
+      RIKZ_TRUSTED_PROXIES: "*"   # only Caddy can reach this container
+    volumes:
+      - files:/data
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["rikz", "worker", "--interval", "600"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://rikz:${POSTGRES_PASSWORD}@db/rikz
+      FILE_STORE_DIR: /data/files
+    volumes:
+      - files:/data
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RIKZ_DOMAIN: ${RIKZ_DOMAIN:?set RIKZ_DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  files:
+  caddy_data:
+  caddy_config:

@@ -59,7 +59,8 @@ button{background:var(--accent);color:#fff;border:0;cursor:pointer}
 .login{max-width:380px;margin:12vh auto;padding:0 16px}
 .error{color:var(--bad)}
 ol.assume li,ul.notes li{margin:3px 0}
-code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;overflow-wrap:anywhere}
+input[type=file]{max-width:100%}
 @media print{body{background:#fff}}
 {% block extra_css %}{% endblock %}
 </style>

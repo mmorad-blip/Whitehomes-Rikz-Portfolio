@@ -45,7 +45,7 @@
 <td><span class="badge {{ 'bad' if b.status == 'rejected' else 'ok' if b.status == 'accepted' else 'info' }}">{{ b.status }}</span></td>
 <td style="white-space:normal;text-align:left">{{ b.file_names|length }}{% if b.file_names %}<div class="muted small">{{ b.file_names[:4]|join(", ") }}{% if b.file_names|length > 4 %} …{% endif %}</div>{% endif %}</td>
 <td style="white-space:normal;text-align:left" class="small">{% for r in b.reasons %}<div class="{{ 'error' if b.status == 'rejected' }}">{{ r }}</div>{% endfor %}{% for n in (b.notes or [])[:3] %}<div class="muted">{{ n }}</div>{% endfor %}</td>
-<td>{% if b.snapshot_id %}created{% endif %}</td></tr>
+<td>{% if b.snapshot_id %}<a href="{{ base }}?v={{ version_of[b.snapshot_id] }}">v{{ version_of[b.snapshot_id] }}</a>{% endif %}</td></tr>
 {% else %}<tr><td colspan="7" class="muted">No uploads yet.</td></tr>{% endfor %}
 </table></div>
 

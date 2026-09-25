@@ -20,7 +20,7 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 | 4 | Dashboard website and PDF report | done |
 | 5 | Ingestion triggers (upload page, Google Drive watcher) | done |
 | 6 | Notifications (two links, email) | done |
-| 7 | Hardening (access codes, view log, backups, monitoring) | |
+| 7 | Hardening (security, deployment, backups, monitoring) | done |
 
 ## Phase 1: what works
 
@@ -205,6 +205,38 @@ export RIKZ_SHAREHOLDER_EMAIL_MODE=review   # default; "auto" sends as soon as a
   distinct error) and emails that failed after all retries.
 * **Sending:** each recipient gets their own email, so addresses aren't shared.
   Emails are queued as jobs and sent by `rikz worker`, with retries.
+
+## Phase 7: hardening and deployment
+
+See **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for going live, routine use,
+key rotation, backups and restore, monitoring, data retention and the
+security summary. Deployment files:
+
+* `docker-compose.yml` runs PostgreSQL, the website, the worker, and Caddy
+  (automatic HTTPS). `.env.example` lists every setting.
+* `Dockerfile`: non-root image. Dependencies are pinned in
+  `requirements.txt`, and the image includes a health check.
+* `scripts/backup.sh`: nightly database, file store and config backup, with
+  a check that the dump can be read.
+* `rikz check-config [--smtp] [--drive]`: checks everything before going
+  live.
+* `.github/workflows/ci.yml`: tests on Python 3.11 and 3.12, with SQLite and
+  PostgreSQL, plus a Docker build and PDF smoke test.
+
+Hardening in the app:
+
+* **Log redaction:** request logs replace link tokens with `<token>`, and the
+  server's own access log is off.
+* **Guessing limits:** a device waits 15 minutes after 5 wrong keys, and a
+  link pauses sign-in after 50 wrong keys in an hour.
+* **Key rotation** ends existing sessions.
+* **Security headers:** strict CSP (no scripts at all), no framing,
+  no-referrer, no-store, HSTS and noindex.
+* **Error pages and size limits:** HTML error pages, a 100 MB request cap,
+  and upload limits.
+* **Daily maintenance:** re-hashes the file store (the admin is emailed if a
+  file is damaged) and trims the view log (400 days) and sign-in log
+  (30 days).
 
 ## Rules this code follows
 
