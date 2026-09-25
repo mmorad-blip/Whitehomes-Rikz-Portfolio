@@ -165,3 +165,20 @@ def test_recalc_from_admin(client):
     token = csrf_of(client.get(f"/a/{ADMIN}/admin").text)
     r = client.post(f"/a/{ADMIN}/recalc", data={"csrf": token})
     assert r.status_code == 200 and "did not change" in r.text
+
+
+def test_send_to_shareholders_button(store, access):
+    from rikz.notify.notices import NoticeConfig
+    from rikz.web.app import create_app
+
+    notices = NoticeConfig(("a@example.com",), ("admin@example.com",), "review",
+                           access.link("shareholder"), access.link("admin"))
+    c = TestClient(create_app(store, access, notices))
+    admin_login(c)
+    page = c.get(f"/a/{ADMIN}/admin").text
+    assert "review first" in page and "Send to shareholders" in page
+    r = c.post(f"/a/{ADMIN}/notify", data={"csrf": csrf_of(page), "version": "2"})
+    assert "notice queued for 1 shareholder" in r.text
+    r = c.post(f"/a/{ADMIN}/notify", data={"csrf": csrf_of(page), "version": "2"})
+    assert "already sent or queued for every shareholder" in r.text
+    assert c.post(f"/a/{ADMIN}/notify", data={"csrf": "bad", "version": "2"}).status_code == 400

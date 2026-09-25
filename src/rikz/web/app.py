@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
-from ..store.db import Batch, DriveFile, Job, Snapshot, ViewLog, get_meta
+from ..store.db import Batch, DriveFile, Job, Notification, Snapshot, ViewLog, get_meta
 from . import views
 from .auth import AccessConfig, check_key
 
@@ -47,7 +47,7 @@ def fmt_value(v, unit: str) -> str:
     return f"{Decimal(v):,.0f}"
 
 
-def create_app(store, access: AccessConfig) -> FastAPI:
+def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters.update(sar=fmt_sar, pct=fmt_pct, value=fmt_value)
@@ -181,6 +181,10 @@ def create_app(store, access: AccessConfig) -> FastAPI:
             views_ = s.scalars(sel(ViewLog).order_by(ViewLog.id.desc()).limit(50)).all()
             drive = s.scalars(sel(DriveFile).order_by(DriveFile.seen_at.desc()).limit(30)).all()
             jobs = s.scalars(sel(Job).where(Job.status != "done").order_by(Job.id.desc()).limit(30)).all()
+            sent: dict[int, dict[str, int]] = {}
+            for n in s.scalars(sel(Notification).where(Notification.audience == "shareholder")):
+                d = sent.setdefault(n.snapshot_version, {})
+                d[n.status] = d.get(n.status, 0) + 1
         last = get_meta(store.Session, "drive_last_result")
         return {
             "role": "admin", "base": base_url("admin"), "csrf": access.csrf_token(session), "result": result,
@@ -189,6 +193,7 @@ def create_app(store, access: AccessConfig) -> FastAPI:
             "drive_last_error": get_meta(store.Session, "drive_last_error"),
             "drive_last": json.loads(last) if last else None,
             "links": {"shareholder": access.link("shareholder"), "admin": access.link("admin")},
+            "notices": notices, "sent": sent,
         }
 
     @app.get("/{area}/{token}/admin", response_class=HTMLResponse)
@@ -228,5 +233,27 @@ def create_app(store, access: AccessConfig) -> FastAPI:
         check_csrf(session, csrf)
         result = store.recalculate(source="upload")
         return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
+
+    @app.post("/{area}/{token}/notify", response_class=HTMLResponse)
+    def notify(request: Request, area: str, token: str, version: int = Form(...), csrf: str = Form(""),
+               resend: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        from ..notify.notices import queue_shareholder_report
+
+        if notices is None or not notices.shareholders:
+            message = "Shareholder e-mail addresses are not configured (RIKZ_SHAREHOLDER_EMAILS)."
+        else:
+            try:
+                n = queue_shareholder_report(store, notices, version, resend=bool(resend))
+            except ValueError as exc:
+                raise HTTPException(404, str(exc)) from None
+            message = (f"Report v{version}: notice queued for {n} shareholder(s); the worker sends it within minutes."
+                       if n else f"Report v{version} was already sent or queued for every shareholder.")
+        ctx = admin_context(request, session)
+        ctx["flash"] = message
+        return templates.TemplateResponse(request, "admin.html", ctx)
 
     return app

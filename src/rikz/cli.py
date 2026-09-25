@@ -101,7 +101,9 @@ def main(argv: list[str] | None = None) -> int:
         from .web.app import create_app
         from .web.auth import AccessConfig
 
-        uvicorn.run(create_app(open_store(), AccessConfig.from_env()), host=args.host, port=args.port,
+        store = open_store()
+        notices = _attach_notifier(store)
+        uvicorn.run(create_app(store, AccessConfig.from_env(), notices), host=args.host, port=args.port,
                     proxy_headers=True, forwarded_allow_ips="*")
         return 0
     if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
@@ -142,20 +144,59 @@ def _worker(args) -> int:
     from .ingest.worker import drive_folders, run_forever, run_once
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from .notify.mail import MailConfig, SMTPMailer
+    from .notify.notices import mark_failed_notifications, notify_admins
+
     store = open_store()
-    _attach_notifier(store)
+    notices = _attach_notifier(store)
+    mail = MailConfig.from_env()
+    context = {"mailer": SMTPMailer(mail) if mail else None}
+    if mail is None:
+        logging.getLogger("rikz.worker").warning("e-mail off (SMTP_HOST not set); notices stay queued")
+
+    def after_round(summary: dict) -> None:
+        if notices is None:
+            return
+        failed = mark_failed_notifications(store)
+        if failed:
+            notify_admins(store, notices, "job_failed", "Rikz: e-mails could not be sent",
+                          "These e-mails failed after repeated attempts: " + "; ".join(failed))
+        err = summary.get("drive", {}).get("error")
+        if err:
+            from .store.db import get_meta, set_meta
+
+            if get_meta(store.Session, "drive_error_notified") != err:
+                set_meta(store.Session, "drive_error_notified", err)
+                notify_admins(store, notices, "drive_error", "Rikz: Google Drive could not be read", err)
+
     drive = GoogleDrive.from_env() if os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") and drive_folders() else None
     if drive is None:
         logging.getLogger("rikz.worker").info("Drive watcher off (DRIVE_FOLDER_IDS / GOOGLE_SERVICE_ACCOUNT_JSON not set)")
     if args.once:
-        print(run_once(store, drive=drive))
+        summary = run_once(store, drive=drive, context=context)
+        after_round(summary)
+        print(summary)
         return 0
-    run_forever(store, args.interval, drive=drive)
+    run_forever(store, args.interval, drive=drive, context=context, after_round=after_round)
     return 0
 
 
-def _attach_notifier(store) -> None:
-    """Phase 6 hooks e-mail notifications in here."""
+def _attach_notifier(store):
+    """Register e-mail notices on the store. Returns the notice settings, or
+    None when the links are not configured (then nothing is sent)."""
+    import logging
+
+    from .notify.notices import NoticeConfig, make_listener
+    from .web.auth import AccessConfig
+
+    try:
+        access = AccessConfig.from_env()
+    except RuntimeError as exc:
+        logging.getLogger("rikz").warning("notifications off: %s", exc)
+        return None
+    cfg = NoticeConfig.from_env(access.link("shareholder"), access.link("admin"))
+    store.listeners.append(make_listener(store, cfg))
+    return cfg
 
 
 def _make_keys(role: str) -> int:

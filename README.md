@@ -19,7 +19,7 @@ upload / Drive watcher → parse → store raw file + rows → recalculate → s
 | 3 | Storage and versioned snapshots (Postgres, content-addressed files) | done |
 | 4 | Dashboard website and PDF report | done |
 | 5 | Ingestion triggers (upload page, Google Drive watcher) | done |
-| 6 | Notifications (per-recipient links, email) | |
+| 6 | Notifications (two links, email) | done |
 | 7 | Hardening (access codes, view log, backups, monitoring) | |
 
 ## Phase 1: what works
@@ -179,6 +179,32 @@ export RIKZ_DRIVE_WAIT_HOURS=48                        # optional
 * **Failures:** a Drive failure (network, permissions) is logged, shown on
   the admin page and retried next round. Background jobs retry with back-off
   (2, 4, 8 … minutes, up to 8 attempts).
+
+## Phase 6: notifications
+
+There are **two links only**: one for shareholders and one for the admin,
+each with its own access key (phase 4). Email only ever carries the link.
+
+```
+export SMTP_HOST=smtp.example.com SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=reports@example.com
+export SMTP_SECURITY=starttls        # or ssl / none; SMTP_PORT defaults to 587 (465 for ssl)
+export RIKZ_SHAREHOLDER_EMAILS=a@example.com,b@example.com
+export RIKZ_ADMIN_EMAILS=you@example.com
+export RIKZ_SHAREHOLDER_EMAIL_MODE=review   # default; "auto" sends as soon as a report is created
+```
+
+* **Shareholders** get one email per report version. It contains the
+  shareholder link, the report date and how many things changed. There are no
+  figures, no attachment and never the access key, so the report stays behind
+  the key even if the email is forwarded.
+* **Review first (default):** a new report emails the admin, and nothing goes
+  to shareholders until you press **Send to shareholders** on the admin page.
+  A version is never sent twice by accident, and **Send again** is explicit.
+* **The admin** is emailed about every new report (with the changes list),
+  every rejected upload (with the reasons), Google Drive read errors (once per
+  distinct error) and emails that failed after all retries.
+* **Sending:** each recipient gets their own email, so addresses aren't shared.
+  Emails are queued as jobs and sent by `rikz worker`, with retries.
 
 ## Rules this code follows
 

@@ -21,6 +21,8 @@
 </div>
 {% endif %}
 
+{% if flash %}<div class="panel" style="border-color:var(--accent)">{{ flash }}</div>{% endif %}
+
 <h2>Upload statements</h2>
 <div class="panel">
   <form method="post" action="upload" enctype="multipart/form-data">
@@ -54,6 +56,23 @@
 <td class="small">Manafa to {{ cov.manafa.statement_to }}, {{ cov.awaed.confirmations }} Awaed</td><td>{{ head["total.nav"]|sar }}</td><td>{{ n }}</td></tr>
 {% else %}<tr><td colspan="6" class="muted">No report yet.</td></tr>{% endfor %}
 </table></div>
+
+<h2>Shareholder e-mails</h2>
+<div class="panel small">
+{% if not notices %}<p class="muted">E-mail notices are off: the links are not configured in this process.</p>
+{% else %}
+<p>Mode: <strong>{{ "review first – nothing goes out until you press Send" if notices.mode == "review" else "automatic – sent as soon as a report is created" }}</strong>.
+Recipients: {{ notices.shareholders|length }} shareholder(s){% if notices.admins %}, {{ notices.admins|length }} admin(s){% endif %}.
+The e-mail carries the shareholder link only – no figures, no attachment, never the access key.</p>
+<div class="table-wrap"><table><tr><th>Version</th><th>As of</th><th>Shareholder notice</th><th></th></tr>
+{% for ver, as_of, created, cov, head, n in snapshots[:8] %}{% set st = sent.get(ver, {}) %}
+<tr><td>v{{ ver }}</td><td>{{ as_of }}</td>
+<td>{% if st %}{% for k, c in st.items() %}{{ c }} {{ k }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<span class="muted">not sent</span>{% endif %}</td>
+<td><form method="post" action="notify" style="margin:0"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ ver }}">
+{% if st.get("sent") or st.get("queued") %}<input type="hidden" name="resend" value="1"><button type="submit" style="background:var(--muted)">Send again</button>
+{% else %}<button type="submit">Send to shareholders</button>{% endif %}</form></td></tr>
+{% endfor %}</table></div>{% endif %}
+</div>
 
 <h2>Google Drive</h2>
 <div class="panel small">

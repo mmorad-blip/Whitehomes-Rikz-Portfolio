@@ -88,9 +88,14 @@ def run_once(store, *, drive=None, folders: list[str] | None = None, on_result=N
     return summary
 
 
-def run_forever(store, interval: int, **kw) -> None:
+def run_forever(store, interval: int, after_round=None, **kw) -> None:
     while True:
         started = time.monotonic()
         summary = run_once(store, **kw)
+        if after_round:
+            try:
+                after_round(summary)
+            except Exception:  # noqa: BLE001
+                log.exception("after-round hook failed")
         log.info("worker round: %s", summary)
         time.sleep(max(5, interval - (time.monotonic() - started)))
