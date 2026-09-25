@@ -8,12 +8,12 @@
   {% if not pdf %}
   <nav>
     <form method="get" action="{{ base }}">
-      <select name="v" onchange="this.form.submit()" aria-label="Report version">
+      <select name="v" aria-label="Report version">
         {% for ver, as_of, cov in versions %}
         <option value="{{ ver }}" {% if ver == snapshot.version %}selected{% endif %}>Report v{{ ver }} · as of {{ as_of.strftime("%d %b %Y") }}</option>
         {% endfor %}
       </select>
-      <noscript><button type="submit">Go</button></noscript>
+      <button type="submit">Show</button>
     </form>
     <a href="{{ base }}?v={{ snapshot.version }}">Dashboard</a>
     <a href="{{ base }}positions?v={{ snapshot.version }}">Positions</a>

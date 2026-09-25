@@ -15,10 +15,12 @@ from sqlalchemy import select
 from ..store.db import Batch, DriveFile, Job, Notification, Snapshot, ViewLog, get_meta
 from . import views
 from .auth import AccessConfig, check_key
+from .security import SecurityMiddleware, locked_out, record_attempt
 
 HERE = Path(__file__).parent
 MAX_FILES = 60
 MAX_FILE_BYTES = 25 * 1024 * 1024
+MAX_REQUEST_BYTES = 100 * 1024 * 1024
 COOKIE = {"shareholder": "rikz_v", "admin": "rikz_a"}
 
 
@@ -49,6 +51,24 @@ def fmt_value(v, unit: str) -> str:
 
 def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(SecurityMiddleware, max_body=MAX_REQUEST_BYTES, hsts=access.secure_cookies)
+
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        messages = {404: "Not found.", 400: "Bad request.", 413: "Upload too large.", 422: "Bad request."}
+        detail = exc.detail if exc.status_code in (400, 413) and isinstance(exc.detail, str) else None
+        return templates.TemplateResponse(request, "error.html", {"status": exc.status_code,
+                                          "message": detail or messages.get(exc.status_code, "Something went wrong.")},
+                                          status_code=exc.status_code)
+
+    from fastapi.exceptions import RequestValidationError
+
+    @app.exception_handler(RequestValidationError)
+    async def bad_form(request: Request, exc: RequestValidationError):
+        return templates.TemplateResponse(request, "error.html", {"status": 400, "message": "Bad request."},
+                                          status_code=400)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters.update(sar=fmt_sar, pct=fmt_pct, value=fmt_value)
     templates.env.globals["access"] = access
@@ -93,7 +113,13 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     @app.post("/{area}/{token}/login")
     def login(request: Request, area: str, token: str, key: str = Form(...)):
         role, _ = gate(request, area, token)
-        if not check_key(key.strip().upper(), access.key_hashes[role]):
+        client = access.client_id(request.client.host if request.client else "?")
+        wait = locked_out(store.Session, role, client)
+        if wait:
+            return templates.TemplateResponse(request, "login.html", {"role": role, "error": wait}, status_code=429)
+        ok = check_key(key.strip().upper()[:64], access.key_hashes[role])
+        record_attempt(store.Session, role, client, ok)
+        if not ok:
             return templates.TemplateResponse(request, "login.html", {"role": role, "error": "That access key is not right."},
                                               status_code=401)
         resp = RedirectResponse(base_url(role), status_code=303)
@@ -178,6 +204,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             batches = s.scalars(sel(Batch).order_by(Batch.id.desc()).limit(30)).all()
             snaps = s.scalars(sel(Snapshot).order_by(Snapshot.version.desc()).limit(30)).all()
             snap_rows = [(x.version, x.as_of, x.created_at, x.coverage, x.headline, len(x.changes)) for x in snaps]
+            version_of = dict(s.execute(sel(Snapshot.id, Snapshot.version)).all())
             views_ = s.scalars(sel(ViewLog).order_by(ViewLog.id.desc()).limit(50)).all()
             drive = s.scalars(sel(DriveFile).order_by(DriveFile.seen_at.desc()).limit(30)).all()
             jobs = s.scalars(sel(Job).where(Job.status != "done").order_by(Job.id.desc()).limit(30)).all()
@@ -193,7 +220,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             "drive_last_error": get_meta(store.Session, "drive_last_error"),
             "drive_last": json.loads(last) if last else None,
             "links": {"shareholder": access.link("shareholder"), "admin": access.link("admin")},
-            "notices": notices, "sent": sent,
+            "notices": notices, "sent": sent, "version_of": version_of,
         }
 
     @app.get("/{area}/{token}/admin", response_class=HTMLResponse)

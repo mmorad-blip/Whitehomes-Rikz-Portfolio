@@ -95,9 +95,13 @@ class AccessConfig:
     def _sign(self, payload: bytes) -> str:
         return hmac.new(self.secret, payload, hashlib.sha256).hexdigest()
 
+    def _key_tag(self, role: str) -> str:
+        # Sessions name the key they were opened with: a new key ends them all.
+        return hashlib.sha256(self.key_hashes[role].encode()).hexdigest()[:12]
+
     def make_session(self, role: str) -> str:
         body = base64.urlsafe_b64encode(json.dumps({"r": role, "e": int(time.time()) + SESSION_HOURS[role] * 3600,
-                                                    "c": secrets.token_hex(16)}).encode())
+                                                    "c": secrets.token_hex(16), "k": self._key_tag(role)}).encode())
         return f"{body.decode()}.{self._sign(body)}"
 
     def read_session(self, value: str | None, role: str) -> dict | None:
@@ -110,7 +114,7 @@ class AccessConfig:
             data = json.loads(base64.urlsafe_b64decode(body.encode()))
         except ValueError:
             return None
-        if data.get("r") != role or data.get("e", 0) < time.time():
+        if data.get("r") != role or data.get("e", 0) < time.time() or data.get("k") != self._key_tag(role):
             return None
         return data
 

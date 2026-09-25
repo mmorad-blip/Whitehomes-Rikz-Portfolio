@@ -157,7 +157,9 @@ def test_admin_forms_need_csrf(client):
 def test_shareholders_cannot_reach_admin(client):
     login(client, "v", VIEW, "SHARE-1234")
     assert client.get(f"/v/{VIEW}/admin").status_code == 404
-    assert client.post(f"/v/{VIEW}/upload", data={"csrf": "x"}).status_code in (404, 422)
+    pdf = AWAED / "01-murabaha_confirmation.pdf"
+    r = client.post(f"/v/{VIEW}/upload", data={"csrf": "x"}, files=[("files", (pdf.name, pdf.read_bytes(), "application/pdf"))])
+    assert r.status_code == 404
 
 
 def test_recalc_from_admin(client):

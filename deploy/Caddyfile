@@ -1,0 +1,9 @@
+# Automatic HTTPS (Let's Encrypt) for the report site. Caddy writes no access
+# log unless asked, so the private link tokens never reach a log file here.
+{$RIKZ_DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 100MB
+	}
+	reverse_proxy web:8000
+}

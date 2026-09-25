@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from datetime import date
@@ -9,7 +10,8 @@ from pathlib import Path
 from .errors import Rejected
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_DIR = ROOT / "config"
+# The repository's config/ in development; RIKZ_CONFIG_DIR when installed.
+CONFIG_DIR = Path(os.environ.get("RIKZ_CONFIG_DIR", str(ROOT / "config")))
 
 
 @dataclass(frozen=True)

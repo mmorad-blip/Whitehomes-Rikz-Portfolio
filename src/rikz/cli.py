@@ -81,6 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     mk = sub.add_parser("make-keys", help="generate the two private links' tokens and access keys")
     mk.add_argument("--role", choices=["shareholder", "admin", "both"], default="both",
                     help="rotate one role's link and key, or create both")
+    cc = sub.add_parser("check-config", help="check the environment before going live")
+    cc.add_argument("--smtp", action="store_true", help="also log in to the SMTP server (sends nothing)")
+    cc.add_argument("--drive", action="store_true", help="also list the Drive folders")
     wk = sub.add_parser("worker", help="poll Google Drive and run background jobs")
     wk.add_argument("--once", action="store_true", help="one round, then exit (for cron)")
     wk.add_argument("--interval", type=int, default=600, help="seconds between rounds (default 600)")
@@ -94,7 +97,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "make-keys":
         return _make_keys(args.role)
+    if args.cmd == "check-config":
+        return _check_config(args)
     if args.cmd == "serve":
+        import os
+
         import uvicorn
 
         from .env import open_store
@@ -103,8 +110,14 @@ def main(argv: list[str] | None = None) -> int:
 
         store = open_store()
         notices = _attach_notifier(store)
+        import logging
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        # uvicorn's own access log would print the private link tokens; the
+        # app logs every request itself with the token redacted.
         uvicorn.run(create_app(store, AccessConfig.from_env(), notices), host=args.host, port=args.port,
-                    proxy_headers=True, forwarded_allow_ips="*")
+                    proxy_headers=True, forwarded_allow_ips=os.environ.get("RIKZ_TRUSTED_PROXIES", "127.0.0.1"),
+                    access_log=False, server_header=False)
         return 0
     if args.cmd in ("ingest", "recalc", "snapshots", "verify-store"):
         return _store_cmd(args)
@@ -135,6 +148,99 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _check_config(args) -> int:
+    import json
+    import os
+
+    from .config import load_ledger, load_mandate, load_settings
+    from .env import Env, open_store
+    from .notify.mail import MailConfig
+    from .web.auth import AccessConfig
+
+    problems, lines = [], []
+
+    def ok(msg):
+        lines.append(f"  ok    {msg}")
+
+    def bad(msg):
+        problems.append(msg)
+        lines.append(f"  FAIL  {msg}")
+
+    try:
+        access = AccessConfig.from_env()
+        for role in ("shareholder", "admin"):
+            if not access.key_hashes[role].startswith("scrypt$"):
+                bad(f"{role} key hash is not an scrypt hash (run rikz make-keys)")
+        if not access.public_url.startswith("https://"):
+            bad(f"RIKZ_PUBLIC_URL should be https:// (is {access.public_url})")
+        if not access.secure_cookies:
+            bad("RIKZ_INSECURE_COOKIES is set; only use it for local testing")
+        ok("links, keys and secret are set")
+    except RuntimeError as exc:
+        bad(str(exc))
+    env = Env.load()
+    try:
+        store = open_store(env)
+        with store.Session() as s:
+            s.execute(__import__("sqlalchemy").text("select 1"))
+        ok(f"database reachable ({env.database_url.split('@')[-1]})")
+        probe = store.files.put(b"rikz check-config probe")
+        ok(f"file store writable ({env.file_store_dir}); probe {probe[:8]}")
+        if env.database_url.startswith("sqlite"):
+            lines.append("  note  SQLite in use; PostgreSQL is recommended for the live site")
+    except Exception as exc:  # noqa: BLE001
+        bad(f"storage: {type(exc).__name__}: {exc}")
+    try:
+        load_mandate(env.config_dir / "mandate.toml")
+        load_ledger(env.config_dir / "capital_ledger.toml")
+        st = load_settings(env.config_dir / "settings.toml")
+        ok("config files load")
+        if st.benchmark_is_placeholder:
+            lines.append("  note  the SAIBOR benchmark is still a placeholder (config/settings.toml)")
+    except Exception as exc:  # noqa: BLE001
+        bad(f"config: {exc}")
+    try:
+        mail = MailConfig.from_env()
+        if mail is None:
+            lines.append("  note  e-mail off (SMTP_HOST not set)")
+        else:
+            ok(f"SMTP {mail.host}:{mail.port} ({mail.security})")
+            if args.smtp:
+                import smtplib
+                import ssl
+
+                srv = (smtplib.SMTP_SSL(mail.host, mail.port, timeout=20, context=ssl.create_default_context())
+                       if mail.security == "ssl" else smtplib.SMTP(mail.host, mail.port, timeout=20))
+                with srv:
+                    if mail.security == "starttls":
+                        srv.starttls(context=ssl.create_default_context())
+                    if mail.user:
+                        srv.login(mail.user, mail.password or "")
+                ok("SMTP login works")
+        if not os.environ.get("RIKZ_SHAREHOLDER_EMAILS"):
+            lines.append("  note  RIKZ_SHAREHOLDER_EMAILS not set; shareholders will not be e-mailed")
+    except Exception as exc:  # noqa: BLE001
+        bad(f"e-mail: {type(exc).__name__}: {exc}")
+    raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if raw:
+        try:
+            info = json.loads(raw)
+            ok(f"Drive service account {info.get('client_email', '?')} (share the folders with it)")
+            if args.drive:
+                from .ingest.drive import GoogleDrive, walk
+                from .ingest.worker import drive_folders
+
+                files = walk(GoogleDrive(info), drive_folders())
+                ok(f"Drive folders readable: {len(files)} statement files")
+        except Exception as exc:  # noqa: BLE001
+            bad(f"Drive: {type(exc).__name__}: {exc}")
+    else:
+        lines.append("  note  Drive watcher off (GOOGLE_SERVICE_ACCOUNT_JSON not set)")
+    print("\n".join(lines))
+    print("\nReady." if not problems else f"\n{len(problems)} problem(s) to fix.")
+    return 0 if not problems else 1
+
+
 def _worker(args) -> int:
     import logging
     import os
@@ -161,6 +267,11 @@ def _worker(args) -> int:
         if failed:
             notify_admins(store, notices, "job_failed", "Rikz: e-mails could not be sent",
                           "These e-mails failed after repeated attempts: " + "; ".join(failed))
+        corrupt = (summary.get("maintenance") or {}).get("corrupt_files")
+        if corrupt:
+            notify_admins(store, notices, "store_corrupt", "Rikz: stored statement files are damaged",
+                          f"{len(corrupt)} stored file(s) no longer match their hash. Restore them from backup: "
+                          + ", ".join(c[:12] for c in corrupt))
         err = summary.get("drive", {}).get("error")
         if err:
             from .store.db import get_meta, set_meta

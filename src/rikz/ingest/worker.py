@@ -85,7 +85,25 @@ def run_once(store, *, drive=None, folders: list[str] | None = None, on_result=N
             summary["drive"] = {"error": f"{type(exc).__name__}: {exc}"}
             log.warning("drive poll failed: %s", traceback.format_exc(limit=2))
     summary["jobs"] = run_jobs(store, context or {})
+    summary["maintenance"] = daily_maintenance(store)
     return summary
+
+
+def daily_maintenance(store) -> dict | None:
+    """Once a day: re-hash every stored file and trim old logs."""
+    from ..store.db import get_meta
+    from ..web.security import purge_old
+
+    today = now().date().isoformat()
+    if get_meta(store.Session, "maintenance_last") == today:
+        return None
+    bad = store.files.verify_all()
+    purge_old(store.Session)
+    set_meta(store.Session, "maintenance_last", today)
+    set_meta(store.Session, "store_corrupt", ",".join(bad))
+    if bad:
+        log.error("stored files do not match their hashes: %s", bad)
+    return {"corrupt_files": bad}
 
 
 def run_forever(store, interval: int, after_round=None, **kw) -> None:
