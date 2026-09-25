@@ -1,0 +1,12 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+.env
+# Real statements never go in the repo; only redacted copies under tests/fixtures.
+/data/
+/inbox/
+*.xlsx
+*.pdf
+!tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.pdf
