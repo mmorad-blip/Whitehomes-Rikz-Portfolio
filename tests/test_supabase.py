@@ -154,3 +154,17 @@ def test_export_and_import_store(monkeypatch, tmp_path, capsys):
     (tmp_path / "backup" / ("f" * 64)).write_bytes(b"damaged")
     assert main(["import-store", str(tmp_path / "backup")]) == 1  # the damaged file is refused
     assert "imported 3 files, skipped 1 damaged" in capsys.readouterr().out
+
+
+def test_supabase_migration_matches_the_models():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("mig", root / "scripts" / "make_supabase_migration.py")
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+    committed = (root / "supabase" / "migrations" / "20260926000000_rikz_schema.sql").read_text()
+    assert mig.migration_sql() == committed, "tables changed: add a new migration and bump SCHEMA_VERSION"
+    assert committed.count("enable row level security") == committed.count("CREATE TABLE")
+    assert "'statements', 'statements', false" in committed

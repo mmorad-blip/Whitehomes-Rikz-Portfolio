@@ -38,13 +38,19 @@ Give the shareholders the **shareholder link** and the **shareholder access
 key**, using different channels (for example, the link by email and the key
 by phone or in person). The key is never emailed by the system.
 
-## 2b. Running on Supabase instead
+## 2b. Running on Supabase (the chosen setup)
 
 Supabase hosts the database and the statement files. Your server then only
 runs the website and the worker, and keeps no data of its own.
 
-1. **Create the Supabase project.** Choose the region closest to Saudi Arabia
-   whose data-residency terms you accept, and set a strong database password.
+The Supabase project already exists: **whitehomes-rikz-portfolio** (ref
+`krmmgethjddzpaucowrg`, Frankfurt, eu-central-1). Its schema, tables and
+private `statements` bucket were created from
+`supabase/migrations/20260926000000_rikz_schema.sql`, the same objects the app
+creates on start-up.
+
+1. **Set the database password.** In the project, open *Project Settings →
+   Database → Reset database password* and choose a strong one.
 2. **Fill in `.env` (Option B in `.env.example`):**
    - `DATABASE_URL`: under *Connect → Session pooler* (port 5432). The
      transaction pooler (port 6543) also works.
