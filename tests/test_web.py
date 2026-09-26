@@ -61,7 +61,12 @@ def test_links(access):
 def test_unknown_link_is_404(client):
     assert client.get("/v/not-the-token/").status_code == 404
     assert client.get(f"/a/{VIEW}/").status_code == 404  # shareholder token on the admin path
-    assert client.get("/").status_code == 404
+
+
+def test_home_is_a_plain_notice(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "private site" in r.text
+    assert VIEW not in r.text and ADMIN not in r.text and "/v/" not in r.text and "/a/" not in r.text
 
 
 def test_login_required(client):

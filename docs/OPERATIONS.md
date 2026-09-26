@@ -221,7 +221,7 @@ keeps no access log.
 ## 8. Security summary
 
 - **Two private links, each behind its own access key.** Keys are ~100 bits,
-  stored only as scrypt hashes in `.env`. A wrong link gives a plain 404.
+  stored only as scrypt hashes in `.env`. A wrong link gives a plain 404; the bare domain shows only a "private site" notice with no links.
 - **Guessing limits:** after 5 wrong keys, a device waits 15 minutes. After
   50 wrong keys in an hour, sign-in to that link pauses.
 - **Sessions:**
