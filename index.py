@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("RIKZ_CONFIG_DIR", str(ROOT / "config"))
 
@@ -47,8 +47,12 @@ def _not_ready(problem: str):
     return app
 
 
-try:
-    app = _build()
-except Exception as exc:  # noqa: BLE001 - show what is missing, never secret values
-    msg = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__} while starting (check DATABASE_URL)"
-    app = _not_ready(msg)
+def _make_app():
+    try:
+        return _build()
+    except Exception as exc:  # noqa: BLE001 - show what is missing, never secret values
+        msg = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__} while starting (check DATABASE_URL)"
+        return _not_ready(msg)
+
+
+app = _make_app()
