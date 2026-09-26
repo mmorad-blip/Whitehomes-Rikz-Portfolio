@@ -26,7 +26,7 @@ class Env:
         from .store.db import is_supabase
 
         data = Path(os.environ.get("RIKZ_DATA_DIR", "data"))
-        url = os.environ.get("DATABASE_URL", f"sqlite:///{data / 'rikz.db'}")
+        url = database_url() or f"sqlite:///{data / 'rikz.db'}"
         # On Supabase the tables go in their own schema by default, away from
         # the "public" schema that Supabase's automatic web API exposes.
         schema = os.environ.get("DATABASE_SCHEMA") or ("rikz" if is_supabase(url) else None)
@@ -43,6 +43,28 @@ class Env:
             supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             supabase_bucket=os.environ.get("SUPABASE_STORAGE_BUCKET", "statements"),
         )
+
+
+def database_url() -> str | None:
+    """The database connection string.
+
+    DATABASE_URL wins. Otherwise POSTGRES_URL, which Vercel sets on its own
+    when the Supabase database is connected to the project in Vercel's
+    Storage tab, so no one has to copy the database password around.
+    """
+    for var in ("DATABASE_URL", "POSTGRES_URL"):
+        url = os.environ.get(var, "").strip().strip("'\"")
+        if not url:
+            continue
+        if url.startswith(("http://", "https://")):
+            # The project's web address, a common paste mistake.
+            if var == "DATABASE_URL" and os.environ.get("POSTGRES_URL"):
+                continue
+            raise RuntimeError(
+                f"{var} holds a web address; it needs the postgresql:// connection string"
+            )
+        return url
+    return None
 
 
 def open_store(env: Env | None = None):

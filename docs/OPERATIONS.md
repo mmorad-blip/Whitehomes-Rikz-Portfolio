@@ -104,6 +104,8 @@ marked *Sensitive*, for Production:
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | Supabase → **Connect** → *Transaction pooler* string (port 6543), with your database password |
+
+Instead of `DATABASE_URL` you can connect the Supabase database to the project under Vercel → **Storage** → the database → **Connect Project**; Vercel then sets `POSTGRES_URL` itself, and the app uses it when `DATABASE_URL` is unset (or holds the project's `https://` address by mistake).
 | `FILE_STORE` | `database` |
 | `RIKZ_SECRET_KEY` | a random string of at least 48 characters |
 | `RIKZ_VIEW_TOKEN` | a random string of at least 24 characters (letters and digits); it becomes part of the shareholder link |

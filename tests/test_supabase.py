@@ -92,6 +92,26 @@ def test_env_defaults_to_private_schema_on_supabase(monkeypatch, tmp_path):
         Env.load()
 
 
+def test_vercel_integration_url_is_used(monkeypatch):
+    from rikz.env import database_url
+
+    vercel = "postgres://postgres.abcd:pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x"
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_URL", vercel)
+    assert database_url() == vercel
+    url, args = normalize_url(vercel)
+    assert "supa=" not in url and "sslmode=require" in url and args == {"prepare_threshold": None}
+    # DATABASE_URL wins when it is a real connection string...
+    monkeypatch.setenv("DATABASE_URL", ' "postgresql://u:p@db.abcd.supabase.co:5432/postgres" ')
+    assert database_url() == "postgresql://u:p@db.abcd.supabase.co:5432/postgres"
+    # ...and a pasted web address falls back to the integration's URL.
+    monkeypatch.setenv("DATABASE_URL", BASE)
+    assert database_url() == vercel
+    monkeypatch.delenv("POSTGRES_URL")
+    with pytest.raises(RuntimeError, match="web address"):
+        database_url()
+
+
 def test_bucket_is_created_private():
     store, fake = fake_store()
     assert fake.buckets["statements"]["public"] is False

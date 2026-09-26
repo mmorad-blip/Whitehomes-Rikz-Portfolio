@@ -187,6 +187,9 @@ def normalize_url(url: str) -> tuple[str, dict]:
     if url.startswith("postgresql://"):
         url = "postgresql+psycopg://" + url[len("postgresql://"):]
     u = make_url(url)
+    # Vercel's Supabase integration tags its URLs with ?supa=..., which is
+    # not a PostgreSQL option and would be refused at connect time.
+    u = u.difference_update_query(["supa"])
     connect_args: dict = {}
     if u.drivername.startswith("postgresql") and u.host and u.host.endswith(SUPABASE_HOSTS):
         if "sslmode" not in u.query:
