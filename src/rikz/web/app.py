@@ -115,7 +115,29 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request):
-        return templates.TemplateResponse(request, "home.html", {})
+        return templates.TemplateResponse(request, "home.html", {"error": None})
+
+    def open_session(role: str) -> RedirectResponse:
+        resp = RedirectResponse(base_url(role), status_code=303)
+        resp.set_cookie(COOKIE[role], access.make_session(role), httponly=True, secure=access.secure_cookies,
+                        samesite="strict", path=base_url(role))
+        return resp
+
+    @app.post("/", response_class=HTMLResponse)
+    def home_access(request: Request, key: str = Form(...)):
+        """One box for both keys: the key decides whether this is the
+        shareholder report or the admin area. Throttled as its own link."""
+        client = access.client_id(client_ip(request))
+        wait = locked_out(store.Session, "home", client)
+        if wait:
+            return templates.TemplateResponse(request, "home.html", {"error": wait}, status_code=429)
+        given = key.strip().upper()[:64]
+        role = next((r for r in ("admin", "shareholder") if check_key(given, access.key_hashes[r])), None)
+        record_attempt(store.Session, "home", client, role is not None)
+        if role is None:
+            return templates.TemplateResponse(request, "home.html", {"error": "That access key is not right."},
+                                              status_code=401)
+        return open_session(role)
 
     @app.get("/healthz")
     def healthz(check: str = ""):
