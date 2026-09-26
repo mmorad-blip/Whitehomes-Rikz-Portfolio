@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Rikz Portfolio{% endblock %}
 {% block body %}
-<div class="login"><div class="panel"><h1>Rikz Portfolio</h1><p class="muted small">This is a private site. Open it with the link you were given.</p></div></div>
+<div class="login">
+  <div class="panel">
+    <h1>Rikz Portfolio</h1>
+    <p class="muted small">This is a private site. Enter the access key you were given.</p>
+    <form method="post" action="/">
+      <p><input name="key" aria-label="Access key" type="password" autocomplete="current-password" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" required autofocus style="width:100%"></p>
+      {% if error %}<p class="error small" role="alert">{{ error }}</p>{% endif %}
+      <p><button type="submit">Open</button></p>
+    </form>
+  </div>
+</div>
 {% endblock %}

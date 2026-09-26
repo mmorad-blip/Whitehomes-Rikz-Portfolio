@@ -63,10 +63,22 @@ def test_unknown_link_is_404(client):
     assert client.get(f"/a/{VIEW}/").status_code == 404  # shareholder token on the admin path
 
 
-def test_home_is_a_plain_notice(client):
+def test_home_is_an_access_page(client):
     r = client.get("/")
-    assert r.status_code == 200 and "private site" in r.text
+    assert r.status_code == 200 and "private site" in r.text and 'name="key"' in r.text
     assert VIEW not in r.text and ADMIN not in r.text and "/v/" not in r.text and "/a/" not in r.text
+
+
+def test_home_access_key_opens_the_right_area(client):
+    bad = client.post("/", data={"key": "wrong"}, follow_redirects=False)
+    assert bad.status_code == 401 and VIEW not in bad.text and ADMIN not in bad.text
+    r = client.post("/", data={"key": "share-1234"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/v/{VIEW}/"
+    assert f"Path=/v/{VIEW}/" in r.headers["set-cookie"]
+    assert client.get(f"/v/{VIEW}/", follow_redirects=False).status_code == 200
+    r = client.post("/", data={"key": "ADMIN-5678"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/a/{ADMIN}/"
+    assert f"Path=/a/{ADMIN}/" in r.headers["set-cookie"]
 
 
 def test_login_required(client):
