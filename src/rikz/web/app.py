@@ -113,6 +113,10 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
                 raise HTTPException(404)
             return snap, all_v
 
+    @app.get("/", response_class=HTMLResponse)
+    def home(request: Request):
+        return templates.TemplateResponse(request, "home.html", {})
+
     @app.get("/healthz")
     def healthz(check: str = ""):
         if check != "db":
