@@ -106,3 +106,19 @@ def test_postgres_private_schema_and_row_level_security(tmp_path):
         rows = c.execute(text("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n "
                               "on n.oid = c.relnamespace where n.nspname = 'rikz_test' and c.relkind = 'r'")).all()
     assert len(rows) == 10 and all(r[1] for r in rows)
+
+
+def test_ingest_files_already_in_the_store(store):
+    from rikz.ingest.worker import enqueue, run_jobs
+
+    def queue(paths):
+        files = [[p.name, store.files.put(p.read_bytes())] for p in paths]
+        enqueue(store.Session, "ingest.stored", {"files": files, "source": "import"})
+
+    queue(AW[:19] + PAIR_06)
+    queue(AW + PAIR_24)
+    assert run_jobs(store, {}) == (2, 0)
+    with store.Session() as s:
+        snaps = s.scalars(select(Snapshot).order_by(Snapshot.version)).all()
+        assert [x.as_of for x in snaps] == [date(2026, 9, 6), date(2026, 9, 24)]
+        assert {b.source for b in s.scalars(select(Batch))} == {"import"}

@@ -15,6 +15,7 @@ from conftest import AWAED, FIXTURES, MANAFA
 ROOT = Path(__file__).resolve().parents[1]
 IBAN = re.compile(r"SA\d{2}\s?(?:\d{4}\s?){4}\d{4}|SA\d{22}")
 SAUDI_ID = re.compile(r"(?<![\d.])[12]\d{9}(?!\d)")
+LOCKFILES = {"uv.lock", "poetry.lock", "package-lock.json"}
 # 15-digit VAT numbers allowed in fixtures: the redaction placeholder and
 # Awaed's own published VAT number from its footer.
 ALLOWED_VAT = {"300000000000003", "311514457500003"}
@@ -75,6 +76,10 @@ def test_no_personal_data_in_tracked_text_files():
         if p.suffix in (".xlsx", ".pdf") or not p.is_file():
             continue
         text = p.read_text("utf8", errors="ignore")
+        if p.name in LOCKFILES:
+            # generated package metadata; digit runs inside its hashes look like ID numbers
+            assert "550387" not in text, name
+            continue
         assert not IBAN.search(text), name
         assert not SAUDI_ID.search(text), name
 

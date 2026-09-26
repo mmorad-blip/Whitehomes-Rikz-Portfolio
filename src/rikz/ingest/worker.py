@@ -65,6 +65,19 @@ def run_jobs(store, context: dict) -> tuple[int, int]:
     return done, failed
 
 
+@handler("ingest.stored")
+def ingest_stored(store, payload: dict, context: dict) -> None:
+    """Ingest statement files that are already in the file store, as if they
+    had just been uploaded together. Used to load a restored backup (after
+    `rikz import-store`) or files copied into the database directly.
+
+    payload: {"files": [[name, sha256], ...], "source": "..."}
+    """
+    files = [(name, store.files.get(sha)) for name, sha in payload["files"]]  # get() checks each hash
+    result = store.ingest(files, payload.get("source", "import"))
+    log.info("ingest.stored: batch %s %s %s", result.batch_id, result.status, "; ".join(result.reasons))
+
+
 def drive_folders() -> list[str]:
     return [x.strip() for x in os.environ.get("DRIVE_FOLDER_IDS", "").split(",") if x.strip()]
 
