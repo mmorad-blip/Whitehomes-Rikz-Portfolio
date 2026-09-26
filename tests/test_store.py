@@ -105,4 +105,4 @@ def test_postgres_private_schema_and_row_level_security(tmp_path):
     with engine.connect() as c:
         rows = c.execute(text("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n "
                               "on n.oid = c.relnamespace where n.nspname = 'rikz_test' and c.relkind = 'r'")).all()
-    assert len(rows) == 9 and all(r[1] for r in rows)
+    assert len(rows) == 10 and all(r[1] for r in rows)

@@ -49,6 +49,18 @@ def fmt_value(v, unit: str) -> str:
     return f"{Decimal(v):,.0f}"
 
 
+def client_ip(request: Request) -> str:
+    """Behind Vercel's edge the socket peer is the proxy; Vercel sets
+    X-Forwarded-For itself (clients cannot spoof the first entry there)."""
+    import os
+
+    if os.environ.get("VERCEL"):
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
 def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(SecurityMiddleware, max_body=MAX_REQUEST_BYTES, hsts=access.secure_cookies)
@@ -86,7 +98,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     def log_view(request: Request, role: str, version: int | None) -> None:
         with store.Session() as s:
             s.add(ViewLog(role=role, path=request.url.path.split("/", 3)[-1][:255] or "/", snapshot_version=version,
-                          client=access.client_id(request.client.host if request.client else "?"),
+                          client=access.client_id(client_ip(request)),
                           user_agent=request.headers.get("user-agent", "")[:255]))
             s.commit()
 
@@ -102,8 +114,47 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             return snap, all_v
 
     @app.get("/healthz")
-    def healthz():
-        return {"ok": True}
+    def healthz(check: str = ""):
+        if check != "db":
+            return {"ok": True}
+        try:
+            from sqlalchemy import text as _t
+
+            with store.Session() as s:
+                s.execute(_t("select 1"))
+            return {"ok": True, "db": True}
+        except Exception as exc:  # noqa: BLE001 - report the kind of failure, never connection details
+            return Response(json.dumps({"ok": False, "db": False, "error": type(exc).__name__}),
+                            status_code=503, media_type="application/json")
+
+    @app.get("/cron/worker")
+    def cron_worker(request: Request):
+        """Scheduled run on hosts without a long-running worker (Vercel Cron
+        calls this with 'Authorization: Bearer <CRON_SECRET>')."""
+        import hmac
+        import os
+
+        secret = os.environ.get("CRON_SECRET", "")
+        given = request.headers.get("authorization", "")
+        if not secret or not hmac.compare_digest(given.encode(), f"Bearer {secret}".encode()):
+            raise HTTPException(404)
+        from ..ingest.worker import run_once
+
+        context = {}
+        try:
+            from ..notify.mail import MailConfig, SMTPMailer
+
+            mail = MailConfig.from_env()
+            context["mailer"] = SMTPMailer(mail) if mail else None
+        except RuntimeError:
+            pass
+        drive = None
+        if os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") and os.environ.get("DRIVE_FOLDER_IDS"):
+            from ..ingest.drive import GoogleDrive
+
+            drive = GoogleDrive.from_env()
+        summary = run_once(store, drive=drive, context=context)
+        return {"ok": True, "jobs": list(summary.get("jobs", ())), "drive": bool(drive)}
 
     @app.get("/{area}/{token}/login", response_class=HTMLResponse)
     def login_form(request: Request, area: str, token: str):
@@ -113,7 +164,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     @app.post("/{area}/{token}/login")
     def login(request: Request, area: str, token: str, key: str = Form(...)):
         role, _ = gate(request, area, token)
-        client = access.client_id(request.client.host if request.client else "?")
+        client = access.client_id(client_ip(request))
         wait = locked_out(store.Session, role, client)
         if wait:
             return templates.TemplateResponse(request, "login.html", {"role": role, "error": wait}, status_code=429)
@@ -177,8 +228,14 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
         ctx = views.build(snap, versions, pdf=True)
         html = templates.get_template("dashboard.html").render({**ctx, "role": role, "base": base_url(role),
                                                                  "pdf": True, "request": request})
-        from weasyprint import HTML
-
+        try:
+            from weasyprint import HTML
+        except OSError:
+            # The host lacks WeasyPrint's system libraries (e.g. Vercel): serve
+            # the print layout; the browser's Print → Save as PDF gives the file.
+            ctx["print_hint"] = True
+            return templates.TemplateResponse(request, "dashboard.html", {**ctx, "role": role, "base": base_url(role),
+                                                                          "pdf": True})
         data = HTML(string=html).write_pdf()
         name = f"rikz-portfolio-report-v{snap.version}-{snap.as_of}.pdf"
         return Response(data, media_type="application/pdf",

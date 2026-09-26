@@ -1,0 +1,7 @@
+tests
+docs
+data
+.github
+deploy
+docker-compose*.yml
+Dockerfile

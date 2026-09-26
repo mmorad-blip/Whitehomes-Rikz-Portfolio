@@ -31,8 +31,8 @@ class Env:
         # the "public" schema that Supabase's automatic web API exposes.
         schema = os.environ.get("DATABASE_SCHEMA") or ("rikz" if is_supabase(url) else None)
         store = os.environ.get("FILE_STORE", "local").lower()
-        if store not in ("local", "supabase"):
-            raise RuntimeError("FILE_STORE must be local or supabase")
+        if store not in ("local", "supabase", "database"):
+            raise RuntimeError("FILE_STORE must be local, supabase or database")
         return cls(
             database_url=url,
             file_store_dir=Path(os.environ.get("FILE_STORE_DIR", str(data / "files"))),
@@ -54,6 +54,10 @@ def open_store(env: Env | None = None):
     if env.database_url.startswith("sqlite:///"):
         Path(env.database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
     Session = init_db(make_engine(env.database_url, env.database_schema), env.database_schema)
+    if env.file_store == "database":
+        from .store.db_files import DbFileStore
+
+        return Store(Session, DbFileStore(Session), env.config_dir)
     if env.file_store == "supabase":
         from .store.supabase_files import SupabaseFileStore
 

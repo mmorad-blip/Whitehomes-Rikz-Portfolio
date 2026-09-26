@@ -165,6 +165,6 @@ def test_supabase_migration_matches_the_models():
     mig = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mig)
     committed = (root / "supabase" / "migrations" / "20260926000000_rikz_schema.sql").read_text()
-    assert mig.migration_sql() == committed, "tables changed: add a new migration and bump SCHEMA_VERSION"
+    assert mig.migration_sql() == committed, "tables changed: regenerate the baseline and add a step migration"
     assert committed.count("enable row level security") == committed.count("CREATE TABLE")
     assert "'statements', 'statements', false" in committed

@@ -92,6 +92,54 @@ config. Restore with `pg_restore` into the schema, then
 3. Switch `.env` to Option B.
 4. Run `rikz import-store /tmp/files`, then `rikz verify-store`.
 
+## 2c. Hosting on Vercel (no server to manage)
+
+The website runs as a Vercel function (`api/index.py`, `vercel.json`) in
+Frankfurt (`fra1`), next to the Supabase database. Statement files are kept in
+the database (`FILE_STORE=database`), so no Supabase service key is needed.
+
+**Settings** go in Vercel → project → **Settings → Environment Variables**,
+marked *Sensitive*, for Production:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Supabase → **Connect** → *Transaction pooler* string (port 6543), with your database password |
+| `FILE_STORE` | `database` |
+| `RIKZ_SECRET_KEY` | a random string of at least 48 characters |
+| `RIKZ_VIEW_TOKEN` | a random string of at least 24 characters (letters and digits); it becomes part of the shareholder link |
+| `RIKZ_ADMIN_TOKEN` | a different random string of at least 24 characters; part of the admin link |
+| `RIKZ_VIEW_KEY` | the shareholder access key (at least 16 characters) |
+| `RIKZ_ADMIN_KEY` | your admin access key (at least 16 characters, different from the shareholder key) |
+| `CRON_SECRET` | a random string of at least 32 characters (protects the daily job) |
+
+A password manager's generator is the easiest way to make the random strings.
+Access keys may also be given as hashes (`RIKZ_VIEW_KEY_HASH`,
+`RIKZ_ADMIN_KEY_HASH` from `rikz make-keys`). A plain key is hashed in memory at
+start-up and never written anywhere. Add email and Drive settings the same
+way when you want them (section 2 lists them).
+
+After saving the settings, open **Deployments** and choose **Redeploy** on the
+latest deployment. Until the settings are complete, the site shows a page
+naming what's missing. `https://<site>/healthz?check=db` answers
+`{"ok": true, "db": true}` once the database connection works.
+
+**Links:**
+- Shareholders: `https://<site>.vercel.app/v/<RIKZ_VIEW_TOKEN>/`
+- Admin: `https://<site>.vercel.app/a/<RIKZ_ADMIN_TOKEN>/`
+
+**How Vercel differs from a server:**
+- **Daily job:** Vercel Cron runs `/cron/worker` once a day at 05:00 UTC.
+  It checks Drive, sends queued emails and does maintenance. Uploads through
+  the admin page still create the report immediately.
+- **PDF:** WeasyPrint's system libraries aren't available on Vercel, so the
+  PDF link opens the print layout; your browser's Print → Save as PDF gives the
+  file.
+- **Upload size:** one upload can be at most 4.5 MB (Vercel's limit). A full
+  set of statements is well under 1 MB.
+- **Settings changes:** the capital ledger and settings files are part of the
+  code. Edit them in GitHub and Vercel redeploys automatically. Then press
+  **Recalculate** on the admin page.
+
 ## 3. Routine
 
 - **New statements:** either upload them on the admin page, or put them in the
