@@ -240,7 +240,10 @@ Hardening in the app:
 
 ## Supabase
 
-The site can run on Supabase: Postgres for the database and a private Storage
+The live setup is Supabase (project `whitehomes-rikz-portfolio`, Frankfurt).
+The database objects are versioned in `supabase/migrations/`, generated from
+the app's models by `scripts/make_supabase_migration.py`; a test keeps the two
+in step. The site runs on Supabase: Postgres for the database and a private Storage
 bucket for the statement files. Set `DATABASE_URL` to the Supabase
 connection string, and `FILE_STORE=supabase` with `SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY`. Then use `docker-compose.supabase.yml`.
