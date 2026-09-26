@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import (JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
-                        create_engine, event)
+from sqlalchemy import (JSON, Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text,
+                        UniqueConstraint, create_engine, event)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -57,6 +57,16 @@ class StoredFile(Base):
     # A Manafa portfolio export is only meaningful with the statement it came with.
     paired_with: Mapped[str | None] = mapped_column(String(64), nullable=True)
     summary: Mapped[dict] = mapped_column(JSON, default=dict)  # parsed rows, for audit
+
+
+class FileBlob(Base):
+    """Statement file contents, when FILE_STORE=database (e.g. on Vercel +
+    Supabase, where there is no disk). Content-addressed and written once."""
+
+    __tablename__ = "file_blob"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class Snapshot(Base):

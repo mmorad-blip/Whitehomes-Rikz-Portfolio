@@ -111,7 +111,7 @@ class Store:
             by_sha = {hashlib.sha256(v).hexdigest(): v for v in data.values()}
             for rec in new_records:
                 raw = by_sha[rec.source.sha256]
-                self.files.put(raw)
+                self._put(s, raw)
                 row = _stored(rec, b.id, batch)
                 row.size = len(raw)
                 s.add(row)
@@ -143,6 +143,20 @@ class Store:
             return result
 
     # -- internals -----------------------------------------------------------
+    # A store that keeps files in the database takes part in the upload's own
+    # transaction, so new files are visible to the rebuild and vanish with it
+    # if the upload is rejected. Disk and Supabase Storage are write-once and
+    # content-addressed, so an orphan there is harmless.
+    def _put(self, s: Session, data: bytes) -> str:
+        if hasattr(self.files, "put_in"):
+            return self.files.put_in(s, data)
+        return self.files.put(data)
+
+    def _get(self, s: Session, sha: str) -> bytes:
+        if hasattr(self.files, "get_in"):
+            return self.files.get_in(s, sha)
+        return self.files.get(sha)
+
     def _reject(self, s: Session, source, names, hashes, reasons) -> IngestResult:
         return self._record(source, names, hashes, "rejected", reasons, [])
 
@@ -174,7 +188,7 @@ class Store:
             b.status = "accepted"
             return IngestResult(b.id, "accepted", [], notes + ["stored; the report starts once a Manafa export and "
                                                               "statement of the same day are uploaded"])
-        files = [(f.name, self.files.get(f.sha256)) for f in inputs]
+        files = [(f.name, self._get(s, f.sha256)) for f in inputs]
         try:
             full = parse_batch(files, rule=rule, ledger=ledger)
         except BatchRejected as exc:

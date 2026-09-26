@@ -254,7 +254,9 @@ connection string, and `FILE_STORE=supabase` with `SUPABASE_URL` and
 * `rikz export-store` and `rikz import-store` move statement files between
   the two storage options and into backups.
 
-Setup and security notes are in [docs/OPERATIONS.md](docs/OPERATIONS.md#2b-running-on-supabase-instead).
+Setup and security notes are in [docs/OPERATIONS.md](docs/OPERATIONS.md#2b-running-on-supabase-the-chosen-setup).
+Hosting on Vercel (no server to manage, files in the database) is in
+[section 2c](docs/OPERATIONS.md#2c-hosting-on-vercel-no-server-to-manage).
 
 ## Rules this code follows
 

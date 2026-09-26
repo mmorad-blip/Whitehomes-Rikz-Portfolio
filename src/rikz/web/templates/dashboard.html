@@ -23,6 +23,7 @@ svg.chart{max-height:150px}
 {% block body %}
 {% include "_header.html" %}
 <main class="wrap">
+{% if print_hint %}<div class="panel small no-print">To save this report as a PDF, use your browser's <strong>Print</strong> and choose <strong>Save as PDF</strong> (landscape).</div>{% endif %}
 
 <h2>Changes since the last report</h2>
 <div class="changes">

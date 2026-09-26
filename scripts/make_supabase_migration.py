@@ -2,8 +2,10 @@
 
     python scripts/make_supabase_migration.py > supabase/migrations/20260926000000_rikz_schema.sql
 
-tests/test_supabase.py fails if the committed file and the models drift apart;
-a schema change then needs a new migration file (and SCHEMA_VERSION bump)."""
+The baseline file holds the full current schema (every statement is
+"if not exists", so it is safe to re-run); later files in supabase/migrations
+are the steps applied to the live project since. tests/test_supabase.py fails
+if the baseline and the models drift apart."""
 
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable

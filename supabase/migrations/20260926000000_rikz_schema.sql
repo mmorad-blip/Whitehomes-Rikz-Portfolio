@@ -18,6 +18,14 @@ CREATE TABLE IF NOT EXISTS rikz.drive_file (
 );
 alter table rikz.drive_file enable row level security;
 
+CREATE TABLE IF NOT EXISTS rikz.file_blob (
+	sha256 VARCHAR(64) NOT NULL, 
+	data BYTEA NOT NULL, 
+	stored_at TIMESTAMP WITH TIME ZONE NOT NULL, 
+	PRIMARY KEY (sha256)
+);
+alter table rikz.file_blob enable row level security;
+
 CREATE TABLE IF NOT EXISTS rikz.job (
 	id SERIAL NOT NULL, 
 	kind VARCHAR(32) NOT NULL, 

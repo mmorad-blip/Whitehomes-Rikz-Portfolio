@@ -59,15 +59,34 @@ class AccessConfig:
 
     @classmethod
     def from_env(cls) -> "AccessConfig":
-        missing = [v for v in ("RIKZ_SECRET_KEY", "RIKZ_VIEW_TOKEN", "RIKZ_ADMIN_TOKEN", "RIKZ_VIEW_KEY_HASH",
-                               "RIKZ_ADMIN_KEY_HASH") if not os.environ.get(v)]
+        # Each access key may be given as a hash (RIKZ_*_KEY_HASH, from
+        # `rikz make-keys`) or as the key itself (RIKZ_*_KEY), for hosts such
+        # as Vercel where you type the values into an encrypted settings page;
+        # a plain key is hashed in memory at start-up and never stored.
+        hashes = {}
+        for role, var in (("shareholder", "RIKZ_VIEW_KEY"), ("admin", "RIKZ_ADMIN_KEY")):
+            if os.environ.get(var + "_HASH"):
+                hashes[role] = os.environ[var + "_HASH"]
+            elif os.environ.get(var):
+                key = os.environ[var].strip().upper()
+                if len(key) < 16:
+                    raise RuntimeError(f"{var} must be at least 16 characters")
+                hashes[role] = hash_key(key)
+        missing = [v for v in ("RIKZ_SECRET_KEY", "RIKZ_VIEW_TOKEN", "RIKZ_ADMIN_TOKEN") if not os.environ.get(v)]
+        missing += [f"{v} (or {v}_HASH)" for r, v in (("shareholder", "RIKZ_VIEW_KEY"), ("admin", "RIKZ_ADMIN_KEY"))
+                    if r not in hashes]
         if missing:
             raise RuntimeError(f"missing environment variables: {', '.join(missing)} (run `rikz make-keys`)")
+        if os.environ.get("RIKZ_VIEW_KEY", "").strip().upper() and \
+                os.environ.get("RIKZ_VIEW_KEY", "").strip().upper() == os.environ.get("RIKZ_ADMIN_KEY", "").strip().upper():
+            raise RuntimeError("the shareholder and admin access keys must differ")
         cfg = cls(
             secret=os.environ["RIKZ_SECRET_KEY"].encode(),
             tokens={"shareholder": os.environ["RIKZ_VIEW_TOKEN"], "admin": os.environ["RIKZ_ADMIN_TOKEN"]},
-            key_hashes={"shareholder": os.environ["RIKZ_VIEW_KEY_HASH"], "admin": os.environ["RIKZ_ADMIN_KEY_HASH"]},
-            public_url=os.environ.get("RIKZ_PUBLIC_URL", "http://localhost:8000").rstrip("/"),
+            key_hashes=hashes,
+            public_url=(os.environ.get("RIKZ_PUBLIC_URL")
+                        or (f"https://{os.environ['VERCEL_PROJECT_PRODUCTION_URL']}"
+                            if os.environ.get("VERCEL_PROJECT_PRODUCTION_URL") else "http://localhost:8000")).rstrip("/"),
             secure_cookies=os.environ.get("RIKZ_INSECURE_COOKIES") != "1",
         )
         cfg.validate()
