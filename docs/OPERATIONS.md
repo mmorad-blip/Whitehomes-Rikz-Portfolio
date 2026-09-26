@@ -94,7 +94,7 @@ config. Restore with `pg_restore` into the schema, then
 
 ## 2c. Hosting on Vercel (no server to manage)
 
-The website runs as a Vercel function (`api/index.py`, `vercel.json`) in
+The website runs as a Vercel function (`index.py`, `vercel.json`) in
 Frankfurt (`fra1`), next to the Supabase database. Statement files are kept in
 the database (`FILE_STORE=database`), so no Supabase service key is needed.
 
