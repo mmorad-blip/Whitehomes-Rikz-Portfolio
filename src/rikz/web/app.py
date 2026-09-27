@@ -314,6 +314,11 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
         log_view(request, "admin", None)
         return templates.TemplateResponse(request, "admin.html", admin_context(request, session))
 
+    @app.get("/{area}/{token}/upload")
+    def upload_page(request: Request, area: str, token: str):
+        _, redirect = need_admin(request, area, token)
+        return redirect or RedirectResponse(base_url("admin") + "admin", status_code=303)
+
     @app.post("/{area}/{token}/upload", response_class=HTMLResponse)
     async def upload(request: Request, area: str, token: str, files: list[UploadFile] = File(...),
                      csrf: str = Form("")):
