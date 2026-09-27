@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
-from ..store.db import Batch, DriveFile, Job, Notification, Snapshot, ViewLog, get_meta
+from ..store.db import Batch, DriveFile, Job, Meta, Notification, Snapshot, ViewLog, get_meta, set_meta
 from . import views
 from .auth import AccessConfig, check_key
 from .security import SecurityMiddleware, locked_out, record_attempt
@@ -105,7 +105,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     def load_snapshot(version: int | None):
         with store.Session() as s:
             q = select(Snapshot).order_by(Snapshot.version.desc())
-            all_v = [(x.version, x.as_of, x.coverage) for x in s.scalars(q)]
+            all_v = [(x.version, x.as_of, x.coverage, x.headline) for x in s.scalars(q)]
             if not all_v:
                 return None, []
             snap = s.scalars(select(Snapshot).where(Snapshot.version == (version or all_v[0][0]))).first()
@@ -217,30 +217,42 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             return role, None, RedirectResponse(base_url(role) + "login", status_code=303)
         return role, session, None
 
-    @app.get("/{area}/{token}/", response_class=HTMLResponse)
-    def dashboard(request: Request, area: str, token: str, v: int | None = None):
+    def headline_key(version: int) -> str:
+        return f"headline.v{version}"
+
+    def build_ctx(snap, versions, pdf: bool = False) -> dict:
+        return views.build(snap, versions, pdf=pdf, headline_override=get_meta(store.Session, headline_key(snap.version)))
+
+    def report_page(request: Request, area: str, token: str, v: int | None, page: str):
         role, session, redirect = need_session(request, area, token)
         if redirect:
             return redirect
         snap, versions = load_snapshot(v)
         log_view(request, role, snap.version if snap else None)
         if snap is None:
-            return templates.TemplateResponse(request, "empty.html", {"role": role, "base": base_url(role)})
-        ctx = views.build(snap, versions)
-        return templates.TemplateResponse(request, "dashboard.html", {**ctx, "role": role, "base": base_url(role),
-                                                                      "pdf": False})
+            if page == "overview":
+                return templates.TemplateResponse(request, "empty.html", {"role": role, "base": base_url(role)})
+            raise HTTPException(404)
+        ctx = build_ctx(snap, versions)
+        template = "positions.html" if page == "positions" else "dashboard.html"
+        return templates.TemplateResponse(request, template, {**ctx, "role": role, "base": base_url(role),
+                                                              "pdf": False, "page": page, "active": page})
+
+    @app.get("/{area}/{token}/", response_class=HTMLResponse)
+    def dashboard(request: Request, area: str, token: str, v: int | None = None):
+        return report_page(request, area, token, v, "overview")
+
+    @app.get("/{area}/{token}/risk", response_class=HTMLResponse)
+    def risk(request: Request, area: str, token: str, v: int | None = None):
+        return report_page(request, area, token, v, "risk")
+
+    @app.get("/{area}/{token}/notes", response_class=HTMLResponse)
+    def notes_page(request: Request, area: str, token: str, v: int | None = None):
+        return report_page(request, area, token, v, "notes")
 
     @app.get("/{area}/{token}/positions", response_class=HTMLResponse)
     def positions(request: Request, area: str, token: str, v: int | None = None):
-        role, session, redirect = need_session(request, area, token)
-        if redirect:
-            return redirect
-        snap, versions = load_snapshot(v)
-        if snap is None:
-            raise HTTPException(404)
-        log_view(request, role, snap.version)
-        ctx = views.build(snap, versions)
-        return templates.TemplateResponse(request, "positions.html", {**ctx, "role": role, "base": base_url(role)})
+        return report_page(request, area, token, v, "positions")
 
     @app.get("/{area}/{token}/report.pdf")
     def pdf(request: Request, area: str, token: str, v: int | None = None):
@@ -251,7 +263,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
         if snap is None:
             raise HTTPException(404)
         log_view(request, role, snap.version)
-        ctx = views.build(snap, versions, pdf=True)
+        ctx = {**build_ctx(snap, versions, pdf=True), "page": "all", "active": ""}
         html = templates.get_template("dashboard.html").render({**ctx, "role": role, "base": base_url(role),
                                                                  "pdf": True, "request": request})
         try:
@@ -296,7 +308,14 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
                 d = sent.setdefault(n.snapshot_version, {})
                 d[n.status] = d.get(n.status, 0) + 1
         last = get_meta(store.Session, "drive_last_result")
+        headlines = {}
+        if snap_rows:
+            snap, versions = load_snapshot(None)
+            ctx = build_ctx(snap, versions)
+            headlines = {"version": snap.version, "auto": ctx["hero"]["auto_headline"],
+                         "custom": get_meta(store.Session, headline_key(snap.version)) or ""}
         return {
+            "headlines": headlines,
             "role": "admin", "base": base_url("admin"), "csrf": access.csrf_token(session), "result": result,
             "batches": batches, "snapshots": snap_rows, "views": views_, "drive_files": drive, "jobs": jobs,
             "drive_last_poll": get_meta(store.Session, "drive_last_poll"),
@@ -348,6 +367,31 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
         check_csrf(session, csrf)
         result = store.recalculate(source="upload")
         return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
+
+    @app.post("/{area}/{token}/headline", response_class=HTMLResponse)
+    def save_headline(request: Request, area: str, token: str, version: int = Form(...), headline: str = Form(""),
+                      csrf: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        snap, _ = load_snapshot(version)
+        if snap is None:
+            raise HTTPException(404)
+        text = " ".join(headline.split())[:140]
+        if text:
+            set_meta(store.Session, headline_key(version), text)
+            message = f"Report v{version} now shows your headline."
+        else:
+            with store.Session() as s:
+                row = s.get(Meta, headline_key(version))
+                if row is not None:
+                    s.delete(row)
+                    s.commit()
+            message = f"Report v{version} is back to the automatic headline."
+        ctx = admin_context(request, session)
+        ctx["flash"] = message
+        return templates.TemplateResponse(request, "admin.html", ctx)
 
     @app.post("/{area}/{token}/notify", response_class=HTMLResponse)
     def notify(request: Request, area: str, token: str, version: int = Form(...), csrf: str = Form(""),

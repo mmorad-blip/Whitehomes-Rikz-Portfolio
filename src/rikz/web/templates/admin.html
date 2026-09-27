@@ -65,6 +65,20 @@
 {% else %}<tr><td colspan="6" class="muted">No report yet.</td></tr>{% endfor %}
 </table></div>
 
+{% if headlines %}
+<h2>Report headline</h2>
+<div class="panel">
+  <form method="post" action="{{ base }}headline" class="headline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ headlines.version }}">
+    <label for="headline" class="eyebrow">Headline for report v{{ headlines.version }}</label>
+    <input id="headline" name="headline" maxlength="140" value="{{ headlines.custom }}" placeholder="{{ headlines.auto }}">
+    <p class="muted small" style="margin:0">Automatic headline: <em>{{ headlines.auto }}</em>. Type your own to replace it, or clear the box and save to go back to the automatic one.</p>
+    <div><button type="submit">Save headline</button></div>
+  </form>
+</div>
+{% endif %}
+
 <h2>Shareholder e-mails</h2>
 <div class="panel small">
 {% if not notices %}<p class="muted">E-mail notices are off: the links are not configured in this process.</p>

@@ -112,7 +112,66 @@ details summary{cursor:pointer}
 .badge.ok{background:var(--good-soft);color:var(--good)}
 .badge.bad{background:var(--bad-soft);color:var(--bad)}
 .badge.info{background:var(--surface-3);color:var(--ink-2)}
-.changes{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r);box-shadow:var(--shadow);padding:6px 18px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:4px 24px}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.tab-gap{flex:1 1 auto;min-width:16px}
+
+/* hero */
+.hero{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:26px 26px 22px;margin:0 0 18px;display:flex;flex-wrap:wrap;gap:22px 40px}
+.hero-main{flex:1 1 460px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.hero-eyebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hero h1{font-size:clamp(26px,3vw,36px);line-height:1.12;letter-spacing:-.02em;max-width:22ch}
+.hero-lede{margin:0;color:var(--ink-2);font-size:15px;line-height:1.6;max-width:68ch;text-wrap:pretty}
+.hero-lede strong{color:var(--ink);font-weight:700}
+.facts{flex:1 1 380px;margin:0;align-self:flex-start;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);overflow:hidden}
+.fact{padding:13px 16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.fact:nth-child(2n){border-right:0}
+.fact:nth-last-child(-n+2){border-bottom:0}
+.facts dt{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.facts dd{margin:0}
+.fact-val{font-family:var(--f-mono);font-size:21px;font-weight:500;letter-spacing:-.02em;margin-top:4px}
+.fact-sub{font-size:12.5px;color:var(--ink-3);overflow-wrap:anywhere}
+.changes{flex:1 1 100%;border-top:1px solid var(--line);padding-top:4px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 28px}
+.changes-hd{grid-column:1/-1}
+.changes-hd h2{font-family:var(--f-body);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 0}
+
+/* KPI extras */
+.kpis{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:18px}
+.kpi-hd{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap}
+.kpi .unit{font-family:var(--f-body);font-size:12px;color:var(--ink-3);margin-left:4px;letter-spacing:0}
+.delta{font-family:var(--f-mono);font-size:12px}
+.delta .muted{font-family:var(--f-body)}
+.delta .up{color:var(--good)}.delta .down{color:var(--bad)}.delta .flat{color:var(--ink-3)}
+.spark-wrap{margin-top:auto}
+svg.spark{display:block;width:100%;height:34px}
+.meter{display:flex;flex-direction:column;gap:5px}
+.meter-track{height:5px;border-radius:99px;background:var(--surface-3);overflow:hidden}
+.meter-fill{height:100%;border-radius:99px;background:var(--good)}
+.meter-fill.bad{background:var(--bad)}
+.meter-cap{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--ink-3)}
+
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:18px;margin-bottom:18px}
+.cards>*{min-width:0;margin:0}
+.stack{display:flex;flex-direction:column;gap:18px}
+.stack>.panel{margin:0}
+.card{padding:18px 20px}
+.card-hd{display:flex;align-items:baseline;justify-content:space-between;gap:6px 16px;flex-wrap:wrap;margin-bottom:6px}
+.card-hd h2{margin:0;font-size:18px}
+.unit-note{font-size:12.5px;color:var(--ink-3)}
+.card .legend{margin:4px 0 10px}
+.table-card{padding:0;overflow:hidden}
+.table-card>.card-hd{padding:16px 20px 12px;margin:0}
+.table-card>.card-foot,.table-card>p{padding:0 20px 14px;margin:0}
+.table-card table tr:last-child td{border-bottom:0}
+.card>h3{margin-top:18px}
+.page-intro{margin:0 0 14px}
+.headline-form{display:flex;flex-direction:column;gap:10px;margin:0}
+.headline-form input{width:100%}
+.foot{margin-top:24px}
+svg .val{fill:var(--ink-2);font-size:11px;font-family:var(--f-mono)}
+svg .lbl{fill:var(--ink-2);font-size:12px}
+svg .track{fill:var(--surface-3)}
+svg .link{stroke:var(--line-2);stroke-dasharray:3 3}
 .changes h3{font-family:var(--f-body);font-size:11px;font-weight:700;color:var(--ink-3);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.08em}
 .changes ul{margin:0;padding-left:18px;font-size:13.5px;color:var(--ink-2)}
 .changes li{margin:3px 0;overflow-wrap:anywhere}

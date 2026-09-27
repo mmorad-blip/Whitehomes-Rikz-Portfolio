@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Positions – report v{{ snapshot.version }}{% endblock %}
 {% block body %}
-{% set active = "positions" %}{% include "_header.html" %}
+{% include "_header.html" %}
 <main class="wrap">
-<h2>Positions ({{ doc.holdings|length }})</h2>
-<p class="muted small">Every position with the statement lines it was built from. Manafa: Whitehomes mandate only.</p>
-<div class="panel table-wrap"><table>
+<p class="page-intro muted small">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</p>
+<div class="panel card table-card">
+<div class="card-hd"><h2>Positions ({{ doc.holdings|length }})</h2><span class="unit-note">Manafa: Whitehomes mandate only</span></div>
+<p class="muted small card-foot" style="margin-top:0">Every position with the statement lines it was built from. Open a position to see its statement references.</p>
+<div class="table-wrap"><table>
 <tr><th>Position</th><th>Channel</th><th>State</th><th>Rating</th><th>Principal</th><th>Start</th><th>Maturity</th><th>Expected net</th><th>Realised net</th><th>Paid</th><th>Outstanding</th></tr>
 {% for h in doc.holdings|sort(attribute="start", reverse=true) %}
 <tr><td><details><summary>{{ h.ident }}</summary><div class="mono">{% for r in h.refs %}{{ r }}<br>{% endfor %}</div></details></td>
@@ -13,5 +15,6 @@
 <td>{{ h.expected_net|sar }}</td><td>{{ h.realised_net|sar }}</td><td>{{ h.paid_on or "–" }}</td><td>{{ h.outstanding|sar }}</td></tr>
 {% endfor %}
 </table></div>
+</div>
 </main>
 {% endblock %}
