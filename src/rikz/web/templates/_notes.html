@@ -1,0 +1,19 @@
+{% if not pdf %}<p class="page-intro muted small">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</p>{% endif %}
+
+<div class="cards">
+  <div class="panel card">
+    <div class="card-hd"><h2>Reconciliation, checks and notes</h2></div>
+    <ul class="notes small">
+    {% for c in doc.checks %}<li>{{ c }}</li>{% endfor %}
+    {% for n in notes_main %}<li>{{ n }}</li>{% endfor %}
+    {% for n in awaed_gap_summary %}<li>{{ n }}</li>{% endfor %}
+    </ul>
+    {% if awaed_gaps and not pdf %}<details class="small"><summary>Awaed rollover detail ({{ awaed_gaps|length }} items)</summary><ul class="notes">
+    {% for n in awaed_gaps %}<li>{{ n[6:] }}</li>{% endfor %}</ul></details>{% endif %}
+  </div>
+  <div class="panel card">
+    <div class="card-hd"><h2>Assumptions</h2></div>
+    <ol class="assume small">{% for a in doc.assumptions %}<li>{{ a }}</li>{% endfor %}</ol>
+    {% if excel_rows %}<p class="muted small">"Excel" values are from the hand-kept model (V2.2) and are shown only where they differ from the statement-based figure.</p>{% endif %}
+  </div>
+</div>

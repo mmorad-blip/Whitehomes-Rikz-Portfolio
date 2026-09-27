@@ -1,0 +1,82 @@
+{% if not pdf %}<p class="page-intro muted small">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</p>{% endif %}
+
+<div class="panel card table-card">
+  <div class="card-hd"><h2>Returns by channel</h2><span class="unit-note">SAR unless stated</span></div>
+  <div class="table-wrap"><table>
+  <tr><th>Figure</th><th>Awaed</th><th>Manafa</th><th>Total</th></tr>
+  {% for m in returns_rows %}{% set f = figs.get("total." ~ m) or figs.get("manafa." ~ m) %}
+  <tr class="{{ 'strong' if m in ('nav','xirr','realised') }}"><td>{{ f.label }}</td>
+  {% for c in channels %}{% set g = figs.get(c ~ "." ~ m) %}
+  <td>{% if g %}{{ g.value|value(g.unit) }}{% if g.excel is not none and (g.value is none or (g.excel - g.value)|abs > (0.005 if g.unit == "SAR" else 0.00005)) %}<div class="xl-cell">Excel {{ g.excel|value(g.unit) }}</div>{% endif %}{% endif %}</td>
+  {% endfor %}</tr>
+  {% endfor %}
+  </table></div>
+</div>
+
+<div class="cards">
+  <div class="panel card table-card keep">
+    <div class="card-hd"><h2>Credit risk</h2><span class="unit-note">Manafa, Whitehomes mandate</span></div>
+    <div class="table-wrap"><table>
+    {% for k in credit_keys %}{% set f = figs[k] %}<tr><td>{{ f.label }}</td><td>{{ f.value|value(f.unit) }}{% if f.excel is not none and (f.excel - f.value)|abs > 0.00005 %}<div class="xl-cell">Excel {{ f.excel|value(f.unit) }}</div>{% endif %}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="stack">
+    <div class="panel card table-card keep">
+      <div class="card-hd"><h2>Exposure by rating</h2><span class="unit-note">SAR</span></div>
+      <div class="table-wrap"><table><tr><th>Rating</th><th>Positions</th><th>Outstanding</th><th>Share</th><th>Realised</th><th>Yield</th></tr>
+      {% for r in tables.ratings %}<tr><td>{{ r.rating }}</td><td>{{ r.positions }}</td><td>{{ r.outstanding|sar }}</td><td>{{ r.share|pct }}</td><td>{{ r.realised|sar }}</td><td>{{ r.cw_yield|pct }}</td></tr>{% endfor %}
+      </table></div>
+    </div>
+    {% if tables.troubled %}
+    <div class="panel card table-card keep">
+      <div class="card-hd"><h2>Overdue positions</h2><span class="unit-note">{{ tables.troubled|length }} open</span></div>
+      <div class="table-wrap"><table><tr><th>Position</th><th>Status</th><th>Rating</th><th>Outstanding</th><th>Recovered</th><th>Maturity</th><th>Days past</th></tr>
+      {% for t in tables.troubled %}<tr><td>{{ t.position }}</td><td>{{ t.status }}</td><td>{{ t.rating }}</td><td>{{ t.outstanding|sar }}</td><td>{{ t.recovered|sar }}</td><td>{{ t.maturity }}</td><td>{{ t.days_past_maturity }}</td></tr>{% endfor %}</table></div>
+    </div>
+    {% endif %}
+    <div class="panel card table-card keep">
+      <div class="card-hd"><h2>Sensitivity</h2><span class="unit-note">Loss on defaulted principal</span></div>
+      <div class="table-wrap"><table><tr><th>Loss</th><th>Manafa NAV</th><th>Manafa return</th><th>Total return</th></tr>
+      {% for r in tables.sensitivity %}<tr><td>{{ r.loss_on_defaulted|pct(0) }}</td><td>{{ r.manafa_nav|sar }}</td><td>{{ r.manafa_roc|pct }}</td><td>{{ r.total_roc|pct }}</td></tr>{% endfor %}
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="panel card keep">
+    <div class="card-hd"><h2>Liquidity schedule</h2><span class="unit-note">Days to cash, SAR</span></div>
+    <div class="legend">{% for name, col in legends.ladder %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div>
+    {{ charts.ladder|safe }}
+    <div class="table-wrap"><table><tr><th>Bucket</th><th>Awaed</th><th>Manafa</th><th>Profit</th><th>Total</th><th>Cumulative</th></tr>
+    {% for r in tables.liquidity %}<tr><td>{{ r.bucket }}</td><td>{{ r.awaed|sar }}</td><td>{{ r.manafa|sar }}</td><td>{{ r.profit|sar }}</td><td>{{ r.total|sar }}</td><td>{{ r.cumulative|sar }}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="panel card keep">
+    <div class="card-hd"><h2>Allocation and capital</h2><span class="unit-note">Target vs actual</span></div>
+    <div class="table-wrap"><table><tr><th>Sleeve</th><th>Target</th><th>Actual</th><th>Rebalance</th></tr>
+    {% for r in tables.allocation %}<tr><td>{{ r.sleeve }}</td><td>{{ r.target_share|pct(0) }}</td><td>{{ r.actual_share|pct }}</td><td>{{ r.rebalance|sar(true) }}</td></tr>{% endfor %}
+    {% for r in tables.capital_by_owner %}<tr><td>Capital – {{ r.owner }}</td><td>{{ r.budget|sar }}</td><td>{{ r.contributed|sar }}</td><td>{{ r.share|pct }}</td></tr>{% endfor %}
+    </table></div>
+    <h3>Realised income by period</h3>
+    <div class="table-wrap"><table><tr><th>Period</th><th>Awaed</th><th>Manafa</th><th>Total</th><th>Annualised on NAV</th></tr>
+    {% for r in tables.income_by_period %}<tr><td>{{ r.period }}</td><td>{{ r.awaed|sar }}</td><td>{{ r.manafa|sar }}</td><td>{{ r.total|sar }}</td><td>{{ r.annualised_on_nav|pct }}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</div>
+
+<div class="panel card table-card">
+  <div class="card-hd"><h2>Forecast</h2><span class="unit-note">One year fully reinvested at historical yields</span></div>
+  <div class="table-wrap"><table><tr><th>Channel</th><th>Historical yield</th><th>Cycle (days)</th><th>Cycles / year</th><th>Annual return</th><th>Profit on capital</th></tr>
+  {% for r in tables.forecast %}<tr><td>{{ r.channel|title }}</td><td>{{ r.yield|pct }}</td><td>{{ "%.1f"|format(r.cycle_days|float) }}</td><td>{{ "%.2f"|format(r.cycles|float) }}</td><td>{{ r.annual|pct }}</td><td>{{ r.profit|sar }}</td></tr>{% endfor %}
+  {% for k in ("forecast.total", "forecast.manafa_share_needed") %}{% if figs.get(k) %}<tr class="strong"><td>{{ figs[k].label }}</td><td colspan="4"></td><td>{{ figs[k].value|pct }}</td></tr>{% endif %}{% endfor %}
+  </table></div>
+  {% if figs.get("forecast.total") and figs["forecast.total"].note %}<p class="muted small card-foot">{{ figs["forecast.total"].note }}</p>{% endif %}
+</div>
+
+<div class="panel card table-card">
+  <div class="card-hd"><h2>Monthly</h2><span class="unit-note">SAR</span></div>
+  <div class="table-wrap"><table><tr><th>Month</th><th>Contributed</th><th>Awaed realised</th><th>Manafa realised</th><th>Cumulative realised</th><th>Expected (open)</th><th>New Manafa</th><th>Principal maturing</th></tr>
+  {% for r in tables.monthly %}<tr><td>{{ r.month[:7] }}</td><td>{{ r.contributed|sar }}</td><td>{{ r.awaed_realised|sar }}</td><td>{{ r.manafa_realised|sar }}</td><td>{{ r.cumulative_realised|sar }}</td><td>{{ r.expected_open|sar }}</td><td>{{ r.new_manafa|sar }}</td><td>{{ r.principal_maturing|sar }}</td></tr>{% endfor %}
+  </table></div>
+</div>

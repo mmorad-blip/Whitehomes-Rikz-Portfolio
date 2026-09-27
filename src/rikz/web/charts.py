@@ -95,5 +95,96 @@ def share_bar(parts: list[tuple[str, Decimal]], *, title: str = "", literal: boo
     return "".join(out)
 
 
+def _slot_colour(slot: int, literal: bool) -> str:
+    return HEX[slot] if literal else f"var(--c{slot},{HEX[slot]})"
+
+
+NEUTRAL = "#9aa7ab"
+
+
+def sparkline(values: list, *, slot: int = 1, literal: bool = False, width: int = 180, height: int = 34) -> str:
+    """Tiny trend line across report versions for a KPI card."""
+    pts = [float(v) for v in values if v is not None]
+    if len(pts) < 2:
+        return ""
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1.0
+    xs = [2 + i * (width - 6) / (len(pts) - 1) for i in range(len(pts))]
+    ys = [height - 4 - (p - lo) / span * (height - 8) for p in pts]
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    c = _slot_colour(slot, literal)
+    return (f'<svg viewBox="0 0 {width} {height}" class="spark" aria-hidden="true" preserveAspectRatio="none">'
+            f'<polygon points="2,{height} {line} {xs[-1]:.1f},{height}" fill="{c}" fill-opacity=".12"/>'
+            f'<polyline points="{line}" fill="none" stroke="{c}" stroke-width="1.6" stroke-linejoin="round"/>'
+            f'<circle cx="{xs[-1]:.1f}" cy="{ys[-1]:.1f}" r="2.6" fill="{c}"/></svg>')
+
+
+def waterfall(steps: list[tuple[str, Decimal]], total_label: str, *, title: str = "", literal: bool = False,
+              height: int = 230) -> str:
+    """Start value, signed steps, then the resulting total (e.g. capital → NAV)."""
+    vals = [float(v or 0) for _, v in steps]
+    levels, run = [], 0.0
+    for i, v in enumerate(vals):
+        lo_hi = (0.0, v) if i == 0 else (run, run + v)
+        run = v if i == 0 else run + v
+        levels.append(lo_hi)
+    labels = [n for n, _ in steps] + [total_label]
+    levels.append((0.0, run))
+    tops = [max(a, b) for a, b in levels]
+    bots = [min(a, b) for a, b in levels[1:-1]] + [run, vals[0]]
+    vmax, vmin = max(tops), min(bots)
+    pad = (vmax - vmin) * 0.6 or vmax * 0.05 or 1.0
+    floor = max(0.0, vmin - pad)
+    ceil = vmax + (vmax - vmin) * 0.15 + 1
+    n = len(labels)
+    width = max(420, 92 * n + 56)
+    top, bottom, left = 22, 30, 48
+    ph = height - top - bottom
+    y = lambda v: top + (ceil - max(v, floor)) / (ceil - floor) * ph  # noqa: E731
+    slot = (width - left - 4) / n
+    bw = slot * 0.62
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(title)}" class="chart">']
+    for t in (floor, (floor + ceil) / 2, ceil):
+        out.append(f'<line x1="{left}" x2="{width - 2}" y1="{y(t):.1f}" y2="{y(t):.1f}" class="grid"/>')
+        out.append(f'<text x="{left - 6}" y="{y(t) + 4:.1f}" text-anchor="end" class="tick">{_k(t)}</text>')
+    prev_top = None
+    for i, (lab, (a, b)) in enumerate(zip(labels, levels)):
+        x = left + i * slot + (slot - bw) / 2
+        endpoint = i == 0 or i == n - 1
+        v = b if endpoint else b - a
+        fill = (NEUTRAL if endpoint else _slot_colour(1 if v >= 0 else 2, literal))
+        hi, lo = max(a, b), min(a, b)
+        out.append(f'<rect x="{x:.1f}" y="{y(hi):.1f}" width="{bw:.1f}" height="{max(y(lo) - y(hi), 1.5):.1f}" rx="2" '
+                   f'fill="{fill}"><title>{escape(lab)}: {v:,.2f}</title></rect>')
+        txt = f"{v:,.0f}" if endpoint else f"{v:+,.0f}"
+        out.append(f'<text x="{x + bw / 2:.1f}" y="{y(hi) - 6:.1f}" text-anchor="middle" class="val">{txt}</text>')
+        if prev_top is not None:
+            out.append(f'<line x1="{prev_top[0]:.1f}" x2="{x:.1f}" y1="{y(prev_top[1]):.1f}" y2="{y(prev_top[1]):.1f}" '
+                       f'class="link"/>')
+        prev_top = (x + bw, b)
+        out.append(f'<text x="{x + bw / 2:.1f}" y="{height - 10}" text-anchor="middle" class="tick">{escape(lab)}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def hbars(rows: list[tuple[str, Decimal]], *, slot: int = 1, title: str = "", literal: bool = False) -> str:
+    """Horizontal bars with the value at the end (e.g. exposure by rating)."""
+    width, row_h, left, right = 560, 30, 110, 86
+    height = row_h * len(rows) + 8
+    vmax = max([float(v or 0) for _, v in rows] + [1.0])
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(title)}" class="chart">']
+    for i, (lab, v) in enumerate(rows):
+        yy = 4 + i * row_h
+        w = float(v or 0) / vmax * (width - left - right)
+        out.append(f'<text x="{left - 10}" y="{yy + 18}" text-anchor="end" class="lbl">{escape(lab)}</text>')
+        out.append(f'<rect x="{left}" y="{yy + 6}" width="{width - left - right}" height="16" rx="3" class="track"/>')
+        if w > 0:
+            out.append(f'<rect x="{left}" y="{yy + 6}" width="{w:.1f}" height="16" rx="3" fill="{_slot_colour(slot, literal)}">'
+                       f'<title>{escape(lab)}: {float(v or 0):,.2f}</title></rect>')
+        out.append(f'<text x="{width - right + 8}" y="{yy + 18}" class="val">{float(v or 0):,.0f}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
 def legend(names: list[str], literal: bool = False) -> list[tuple[str, str]]:
     return [(n, colour(n, i, literal)) for i, n in enumerate(names)]

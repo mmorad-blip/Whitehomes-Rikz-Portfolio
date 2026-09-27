@@ -1,0 +1,68 @@
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-main">
+    <div class="hero-eyebrow">
+      <span class="eyebrow">Report v{{ snapshot.version }} · as of {{ snapshot.as_of.strftime("%d %b %Y") }}</span>
+      <span class="badge {{ hero.badge[1] }}">{{ hero.badge[0] }}</span>
+    </div>
+    <h1 id="hero-title">{{ hero.headline }}</h1>
+    <p class="hero-lede">{{ hero.summary }}</p>
+  </div>
+  <dl class="facts">
+    {% for label, val, sub in hero.facts %}
+    <div class="fact"><dt>{{ label }}</dt><dd class="fact-val">{{ val }}</dd>{% if sub %}<dd class="fact-sub">{{ sub }}</dd>{% endif %}</div>
+    {% endfor %}
+  </dl>
+  <div class="changes">
+    <div class="changes-hd">
+      <h2>Changes since {{ "report v" ~ hero.prev_version if hero.prev_version else "the start" }}</h2>
+    </div>
+    {% for title, items in change_groups %}<div class="cgroup"><h3>{{ title }}</h3><ul>
+    {% for c in items %}<li>{{ c.text }}</li>{% endfor %}</ul></div>
+    {% else %}<p class="muted small">No changes.</p>{% endfor %}
+  </div>
+</section>
+
+<div class="kpis">
+{% for k in kpis %}
+  <div class="kpi">
+    <div class="kpi-hd"><span class="label">{{ k.label }}</span>{% if k.badge %}<span class="badge {{ k.badge[1] }}">{{ k.badge[0] }}</span>{% endif %}</div>
+    <div class="val">{{ k.value|value(k.unit) }}{% if k.unit == "SAR" %}<span class="unit">SAR</span>{% endif %}</div>
+    {% if k.delta %}<div class="delta"><span class="muted">vs v{{ hero.prev_version }}</span> <span class="{{ k.delta.cls }}">{{ k.delta.arrow }} {{ k.delta.text }}</span></div>{% endif %}
+    {% set f = figs[k.key] %}{% if f.excel is not none and (f.excel - k.value)|abs > (0.005 if k.unit == "SAR" else 0.00005) %}<div><span class="badge warn">Excel V2.2: {{ f.excel|value(k.unit) }}</span></div>{% endif %}
+    {% if k.spark %}<div class="spark-wrap">{{ k.spark|safe }}</div>{% endif %}
+    {% if k.bar %}<div class="meter"><div class="meter-track"><div class="meter-fill {{ k.bar.cls }}" style="width:{{ '%.1f'|format(k.bar.fill) }}%"></div></div>
+      <div class="meter-cap"><span>{{ k.bar.left }}</span><span>{{ k.bar.right }}</span></div></div>{% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<div class="cards">
+  <div class="panel card keep">
+    <div class="card-hd"><h2>Realised profit by month</h2><span class="unit-note">SAR, net</span></div>
+    <div class="legend">{% for name, col in legends.channels %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div>
+    {{ charts.monthly|safe }}
+  </div>
+  <div class="panel card keep">
+    <div class="card-hd"><h2>How capital became NAV</h2><span class="unit-note">SAR</span></div>
+    <div class="legend"><span><span class="sw" style="background:#9aa7ab"></span>Start / NAV</span><span><span class="sw" style="background:var(--c1)"></span>Adds</span><span><span class="sw" style="background:var(--c2)"></span>Takes away</span></div>
+    {{ charts.waterfall|safe }}
+  </div>
+  <div class="panel card keep">
+    <div class="card-hd"><h2>Where Manafa exposure sits</h2><span class="unit-note">Outstanding by rating, SAR</span></div>
+    {{ charts.ratings|safe }}
+  </div>
+  <div class="panel card keep">
+    <div class="card-hd"><h2>Allocation against policy</h2><span class="unit-note">SAR</span></div>
+    <div class="legend">{% for name, col in legends.allocation %}<span><span class="sw" style="background:{{ col }}"></span>{{ name }}</span>{% endfor %}</div>
+    {{ charts.allocation|safe }}
+  </div>
+</div>
+
+<div class="panel card table-card keep">
+  <div class="card-hd"><h2>Policy checks</h2><span class="unit-note">{{ tables.policy|selectattr("status", "equalto", "BREACH")|list|length }} of {{ tables.policy|length }} breached</span></div>
+  <div class="table-wrap"><table>
+  <tr><th>Check</th><th>Actual</th><th>Limit / target</th><th>Status</th></tr>
+  {% for r in tables.policy %}<tr><td>{{ r.check }}</td><td>{{ r.actual|pct }}</td><td>{{ r.limit }}</td>
+  <td><span class="badge {{ 'bad' if r.status in ('BREACH','Below expected') else 'ok' if r.status in ('Within limit','Within range','Above expected') else 'info' }}">{{ r.status }}</span></td></tr>{% endfor %}
+  </table></div>
+</div>

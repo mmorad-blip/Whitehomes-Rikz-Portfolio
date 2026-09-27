@@ -104,6 +104,36 @@ def test_dashboard(client):
     assert client.get(f"/v/{VIEW}/?v=9").status_code == 404
 
 
+def test_report_tabs(client):
+    for path in ("risk", "notes"):
+        r = client.get(f"/v/{VIEW}/{path}", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].endswith("/login")
+    login(client, "v", VIEW, "SHARE-1234")
+    overview = client.get(f"/v/{VIEW}/").text
+    assert 'class="hero"' in overview and "How capital became NAV" in overview
+    assert "Credit risk" not in overview
+    risk = client.get(f"/v/{VIEW}/risk").text
+    assert "Credit risk" in risk and "Liquidity schedule" in risk and "Forecast" in risk
+    notes = client.get(f"/v/{VIEW}/notes").text
+    assert "Assumptions" in notes and "Reconciliation" in notes
+    assert client.get(f"/v/{VIEW}/risk?v=9").status_code == 404
+
+
+def test_admin_can_replace_the_headline(client):
+    admin_login(client)
+    page = client.get(f"/a/{ADMIN}/admin").text
+    assert "Report headline" in page
+    auto = re.search(r"Automatic headline: <em>([^<]+)</em>", page).group(1)
+    assert auto in client.get(f"/a/{ADMIN}/").text
+    token = csrf_of(page)
+    assert client.post(f"/a/{ADMIN}/headline", data={"csrf": "bad", "version": "2", "headline": "x"}).status_code == 400
+    r = client.post(f"/a/{ADMIN}/headline", data={"csrf": token, "version": "2", "headline": "  Quiet   month  "})
+    assert r.status_code == 200 and "now shows your headline" in r.text
+    assert ">Quiet month</h1>" in client.get(f"/a/{ADMIN}/").text
+    client.post(f"/a/{ADMIN}/headline", data={"csrf": token, "version": "2", "headline": ""})
+    assert "Quiet month" not in client.get(f"/a/{ADMIN}/").text
+
+
 def test_positions_and_pdf(client):
     login(client, "v", VIEW, "SHARE-1234")
     pos = client.get(f"/v/{VIEW}/positions").text
