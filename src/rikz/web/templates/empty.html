@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="login"><div class="panel"><h1>No report yet</h1>
-<p class="muted">The first report appears once a Manafa portfolio export and account statement of the same day have been uploaded.</p>
-{% if role == "admin" %}<p><a href="{{ base }}admin">Upload statements</a></p>{% endif %}</div></div>
+<main class="access"><div class="access-card">
+  <div class="access-hd"><div class="brand-mark" aria-hidden="true">R</div><div><div class="brand-name">Rikz Portfolio</div><div class="brand-sub">Whitehomes · Private report</div></div></div>
+  <div class="access-bd">
+    <h1>No report yet</h1>
+    <p>The first report appears once a Manafa portfolio export and account statement of the same day have been uploaded.</p>
+    {% if role == "admin" %}<p><a href="{{ base }}admin">Upload statements</a></p>{% endif %}
+  </div>
+</div></main>
 {% endblock %}

@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Admin – Rikz Portfolio{% endblock %}
 {% block body %}
-<header class="top"><div class="wrap">
-  <div><h1>Rikz Portfolio – admin</h1><div class="muted small">Upload statements, see what was accepted or rejected, and who looked at the report.</div></div>
-  <nav><a href="{{ base }}">Report</a><a href="{{ base }}logout">Sign out</a></nav>
-</div></header>
+<header class="masthead">
+  <div class="wrap"><div class="mast-row"><div class="brand">
+    <div class="brand-mark" aria-hidden="true">R</div>
+    <div><h1 class="brand-name">Rikz Portfolio – admin</h1><div class="brand-sub">Uploads · versions · views</div></div>
+  </div></div></div>
+  <div class="wrap"><nav class="tabs" aria-label="Admin sections">
+    <a class="tab" href="{{ base }}">Report</a>
+    <a class="tab" href="{{ base }}admin" aria-current="page">Admin</a>
+    <a class="tab end" href="{{ base }}logout">Sign out</a>
+  </nav></div>
+</header>
+<div class="wrap"><p class="muted small" style="margin:14px 0 0">Upload statements, see what was accepted or rejected, and who looked at the report.</p></div>
 <main class="wrap">
 
 {% if result %}
-<div class="panel" style="border-color:{{ 'var(--bad)' if result.status == 'rejected' else 'var(--good)' }}">
+<div class="panel notice {{ 'bad' if result.status == 'rejected' else 'good' }}">
   <h2 style="margin-top:0">
   {% if result.status == "rejected" %}Rejected – nothing from this upload was imported
   {% elif result.snapshot_version %}Accepted – report v{{ result.snapshot_version }} created
@@ -21,7 +29,7 @@
 </div>
 {% endif %}
 
-{% if flash %}<div class="panel" style="border-color:var(--accent)">{{ flash }}</div>{% endif %}
+{% if flash %}<div class="panel notice">{{ flash }}</div>{% endif %}
 
 <h2>Upload statements</h2>
 <div class="panel">
@@ -33,7 +41,7 @@
   </form>
   <form method="post" action="recalc" style="margin-top:8px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button type="submit" style="background:var(--muted)">Recalculate from stored statements</button>
+    <button type="submit" class="secondary">Recalculate from stored statements</button>
     <span class="muted small">after a change to the settings, ledger or mandate files</span>
   </form>
 </div>
@@ -69,7 +77,7 @@ The e-mail carries the shareholder link only – no figures, no attachment, neve
 <tr><td>v{{ ver }}</td><td>{{ as_of }}</td>
 <td>{% if st %}{% for k, c in st.items() %}{{ c }} {{ k }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<span class="muted">not sent</span>{% endif %}</td>
 <td><form method="post" action="notify" style="margin:0"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ ver }}">
-{% if st.get("sent") or st.get("queued") %}<input type="hidden" name="resend" value="1"><button type="submit" style="background:var(--muted)">Send again</button>
+{% if st.get("sent") or st.get("queued") %}<input type="hidden" name="resend" value="1"><button type="submit" class="secondary">Send again</button>
 {% else %}<button type="submit">Send to shareholders</button>{% endif %}</form></td></tr>
 {% endfor %}</table></div>{% endif %}
 </div>

@@ -4,7 +4,7 @@
 @page{size:A4 landscape;margin:12mm 10mm}
 body{font-size:10.5px;background:#fff}
 .wrap{max-width:none;padding:0}
-header.top{border:0;padding:0 0 6px}
+.masthead{border:0;position:static}.mast-row{padding:0 0 6px}
 h2{font-size:13px;margin:14px 0 6px;page-break-after:avoid}
 .panel,.kpi{border-radius:4px;padding:8px 10px}
 .kpi,.keep,tr{page-break-inside:avoid}
@@ -21,7 +21,7 @@ svg.chart{max-height:150px}
 .badge.ok{background:#e3f1e8}.badge.bad{background:#f8e1df}.badge.info{background:#eceff2}
 {% endif %}{% endblock %}
 {% block body %}
-{% include "_header.html" %}
+{% set active = "dashboard" %}{% include "_header.html" %}
 <main class="wrap">
 {% if print_hint %}<div class="panel small no-print">To save this report as a PDF, use your browser's <strong>Print</strong> and choose <strong>Save as PDF</strong> (landscape).</div>{% endif %}
 
