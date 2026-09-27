@@ -162,6 +162,14 @@ def test_admin_page_and_upload(client, store):
     assert "Rejected – nothing from this upload was imported" in r.text and "no date of its own" in r.text
 
 
+def test_opening_upload_goes_to_the_upload_form(client):
+    assert client.get(f"/a/{ADMIN}/upload", follow_redirects=False).headers["location"].endswith("/login")
+    admin_login(client)
+    r = client.get(f"/a/{ADMIN}/upload", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith(f"/a/{ADMIN}/admin")
+    assert "Upload statements" in client.get(f"/a/{ADMIN}/upload").text
+
+
 def test_admin_forms_need_csrf(client):
     admin_login(client)
     pdf = AWAED / "01-murabaha_confirmation.pdf"
