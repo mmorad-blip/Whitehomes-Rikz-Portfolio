@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Positions – report v{{ snapshot.version }}{% endblock %}
 {% block body %}
-{% include "_header.html" %}
+{% set active = "positions" %}{% include "_header.html" %}
 <main class="wrap">
 <h2>Positions ({{ doc.holdings|length }})</h2>
 <p class="muted small">Every position with the statement lines it was built from. Manafa: Whitehomes mandate only.</p>

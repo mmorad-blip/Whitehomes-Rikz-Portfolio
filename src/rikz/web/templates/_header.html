@@ -1,25 +1,42 @@
-<header class="top"><div class="wrap">
-  <div>
-    <h1>Whitehomes capital-market portfolio</h1>
-    <div class="muted small">Report v{{ snapshot.version }} · as of {{ snapshot.as_of.strftime("%d %b %Y") }} · SAR ·
-      Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} ·
-      {{ coverage.awaed.confirmations }} Awaed confirmations</div>
+<header class="masthead">
+  <div class="wrap">
+    <div class="mast-row">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">R</div>
+        <div>
+          <h1 class="brand-name">Whitehomes capital-market portfolio</h1>
+          <div class="brand-sub">Report v{{ snapshot.version }} · as of {{ snapshot.as_of.strftime("%d %b %Y") }} · SAR</div>
+        </div>
+      </div>
+      {% if not pdf %}
+      <div class="mast-ctl">
+        <form method="get" action="{{ base }}">
+          <select name="v" aria-label="Report version">
+            {% for ver, as_of, cov in versions %}
+            <option value="{{ ver }}" {% if ver == snapshot.version %}selected{% endif %}>Report v{{ ver }} · as of {{ as_of.strftime("%d %b %Y") }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Show</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% if pdf %}
+    <div class="muted small" style="padding-bottom:10px">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</div>
+    {% endif %}
   </div>
   {% if not pdf %}
-  <nav>
-    <form method="get" action="{{ base }}">
-      <select name="v" aria-label="Report version">
-        {% for ver, as_of, cov in versions %}
-        <option value="{{ ver }}" {% if ver == snapshot.version %}selected{% endif %}>Report v{{ ver }} · as of {{ as_of.strftime("%d %b %Y") }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit">Show</button>
-    </form>
-    <a href="{{ base }}?v={{ snapshot.version }}">Dashboard</a>
-    <a href="{{ base }}positions?v={{ snapshot.version }}">Positions</a>
-    <a href="{{ base }}report.pdf?v={{ snapshot.version }}">PDF</a>
-    {% if role == "admin" %}<a href="{{ base }}admin">Admin</a>{% endif %}
-    <a href="{{ base }}logout">Sign out</a>
-  </nav>
+  <div class="wrap">
+    <nav class="tabs" aria-label="Report sections">
+      <a class="tab" href="{{ base }}?v={{ snapshot.version }}" {% if active == "dashboard" %}aria-current="page"{% endif %}>Dashboard</a>
+      <a class="tab" href="{{ base }}positions?v={{ snapshot.version }}" {% if active == "positions" %}aria-current="page"{% endif %}>Positions</a>
+      <a class="tab" href="{{ base }}report.pdf?v={{ snapshot.version }}">PDF</a>
+      {% if role == "admin" %}<a class="tab" href="{{ base }}admin">Admin</a>{% endif %}
+      <a class="tab end" href="{{ base }}logout">Sign out</a>
+    </nav>
+  </div>
   {% endif %}
-</div></header>
+</header>
+{% if not pdf %}
+<div class="wrap"><p class="muted small" style="margin:14px 0 0">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</p></div>
+{% endif %}
