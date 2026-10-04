@@ -31,6 +31,9 @@ from ..model import AccountStatement, ManafaPosition, PortfolioExport, Statement
 from ..vocab import Txn
 
 ZERO = Decimal("0.00")
+# An investment row with no position in the export is accepted as "pending"
+# (an opportunity still being funded) when it is at most this many days old.
+PENDING_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,7 @@ class Matching:
     interchangeable: list[tuple[str, ...]] = field(default_factory=list)
     unmatched_groups: list[RepaymentGroup] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    pending: list[StatementRow] = field(default_factory=list)
 
     def link(self, position: ManafaPosition) -> PositionLink:
         return next(l for l in self.links if l.position is position)
@@ -126,7 +130,7 @@ def repayment_groups(statement: AccountStatement) -> list[RepaymentGroup]:
     return [RepaymentGroup(tuple(g)) for g in groups]
 
 
-def _link_investments(statement: AccountStatement, positions) -> dict[int, StatementRow]:
+def _link_investments(statement: AccountStatement, positions) -> tuple[dict[int, StatementRow], list[StatementRow]]:
     rows = [r for r in statement.rows if r.txn is Txn.INVESTMENT]
     used: set[int] = set()
     out = {}
@@ -140,12 +144,15 @@ def _link_investments(statement: AccountStatement, positions) -> dict[int, State
         used.add(cand[0])
         out[id(p)] = rows[cand[0]]
     extra = [rows[i] for i in range(len(rows)) if i not in used]
-    if extra:
-        r = extra[0]
-        raise Rejected(
-            f"statement row {r.row} invests {-r.amount} on {r.date} but no position in the export matches it"
-        )
-    return out
+    for r in extra:
+        # Money committed to an opportunity that is still raising funds leaves
+        # the wallet at once but only shows in the export once the opportunity
+        # starts. Only a recent unmatched investment can be that.
+        if (statement.period_end - r.date).days > PENDING_DAYS:
+            raise Rejected(
+                f"statement row {r.row} invests {-r.amount} on {r.date} but no position in the export matches it"
+            )
+    return out, extra
 
 
 def match(export: PortfolioExport, statement: AccountStatement) -> Matching:
@@ -156,7 +163,7 @@ def match(export: PortfolioExport, statement: AccountStatement) -> Matching:
             f"the export has a position entered on {late[0].entry}, after the statement ends "
             f"({statement.period_end}); upload the export with the statement from the same day"
         )
-    investments = _link_investments(statement, positions)
+    investments, pending = _link_investments(statement, positions)
 
     groups = repayment_groups(statement)
     settles = [g for g in groups if g.is_settlement]
@@ -278,7 +285,12 @@ def match(export: PortfolioExport, statement: AccountStatement) -> Matching:
         )
     order_key = {id(p): n for n, p in enumerate(positions)}
     links.sort(key=lambda l: order_key[id(l.position)])
-    return Matching(links, interchangeable, unmatched, notes)
+    for r in pending:
+        notes.append(
+            f"investment of {-r.amount:,.2f} on {r.date} (statement row {r.row}) is not in the export yet; "
+            "treated as an opportunity still being funded"
+        )
+    return Matching(links, interchangeable, unmatched, notes, pending)
 
 
 def _group_interchangeable(varying, closed_by_oid, chosen, solutions, settles) -> list[tuple[str, ...]]:

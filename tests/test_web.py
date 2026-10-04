@@ -239,3 +239,31 @@ def test_send_to_shareholders_button(store, access):
     r = c.post(f"/a/{ADMIN}/notify", data={"csrf": csrf_of(page), "version": "2"})
     assert "already sent or queued for every shareholder" in r.text
     assert c.post(f"/a/{ADMIN}/notify", data={"csrf": "bad", "version": "2"}).status_code == 400
+
+
+def test_check_files_then_import(client):
+    admin_login(client)
+    page = client.get(f"/a/{ADMIN}/admin").text
+    assert 'formaction="check"' in page and "No files chosen yet" in page
+    token = csrf_of(page)
+    pair = [MANAFA / "2026-09-24_portfolio.xlsx", MANAFA / "2026-09-24_account_statement.xlsx"]
+    r = client.post(f"/a/{ADMIN}/check", data={"csrf": token},
+                    files=[("files", (p.name, p.read_bytes(), "application/octet-stream")) for p in pair])
+    assert r.status_code == 200 and "✓ Ready to upload" in r.text
+    assert "Manafa portfolio export" in r.text and "Manafa account statement" in r.text
+    shas = re.findall(r'name="sha" value="([0-9a-f]{64})"', r.text)
+    assert len(shas) == 2
+    r = client.post(f"/a/{ADMIN}/import", data={"csrf": token, "name": [p.name for p in pair], "sha": shas})
+    assert r.status_code == 200 and "Accepted" in r.text  # already stored, so the report is unchanged
+    r = client.post(f"/a/{ADMIN}/import", data={"csrf": token, "name": ["x.xlsx"], "sha": ["0" * 64]})
+    assert r.status_code == 400
+
+
+def test_check_explains_what_is_missing(client):
+    admin_login(client)
+    token = csrf_of(client.get(f"/a/{ADMIN}/admin").text)
+    lone = MANAFA / "2026-09-24_portfolio.xlsx"
+    r = client.post(f"/a/{ADMIN}/check", data={"csrf": token},
+                    files=[("files", (lone.name, lone.read_bytes(), "application/octet-stream")),
+                           ("files", ("notes.pdf", b"%PDF-1.4 nothing here", "application/pdf"))])
+    assert "✗ Not ready" in r.text and "Not recognised" in r.text and 'name="sha"' not in r.text

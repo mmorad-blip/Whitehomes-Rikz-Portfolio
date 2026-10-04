@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Admin – Rikz Portfolio{% endblock %}
 {% block body %}
+<style>
+.uploader .pick-state{margin:8px 0}
+.uploader .dot{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700}
+.uploader .when-empty .dot{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
+.uploader .when-ready .dot{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.uploader #files:invalid ~ .pick-state .when-ready,.uploader #files:valid ~ .pick-state .when-empty{display:none}
+.uploader #files:invalid ~ .actions button{opacity:.5}
+.check{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px}
+.check.ready{border-color:var(--good)}.check.not-ready{border-color:var(--bad)}
+.check-files{list-style:none;padding:0;margin:0 0 8px}.check-files li{margin:6px 0}
+.check .mark{display:inline-block;width:1.4em;text-align:center;font-weight:700}
+.check .mark.ok{color:var(--good)}.check .mark.bad{color:var(--bad)}
+</style>
 <header class="masthead">
   <div class="wrap"><div class="mast-row"><div class="brand">
     <div class="brand-mark" aria-hidden="true">R</div>
@@ -33,12 +46,33 @@
 
 <h2>Upload statements</h2>
 <div class="panel">
-  <form method="post" action="upload" enctype="multipart/form-data">
+  <form method="post" action="upload" enctype="multipart/form-data" class="uploader">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <p><input type="file" name="files" multiple required accept=".pdf,.xlsx"></p>
+    <input type="file" id="files" name="files" multiple required accept=".pdf,.xlsx">
+    <p class="pick-state small">
+      <span class="when-empty"><span class="dot" aria-hidden="true">○</span> No files chosen yet</span>
+      <span class="when-ready"><span class="dot" aria-hidden="true">✓</span> Files chosen – press <strong>Check files</strong> to see if they are ready, or <strong>Upload</strong></span>
+    </p>
     <p class="muted small">Awaed murabaha confirmations (PDF) any time. A Manafa portfolio export must be uploaded together with the account statement downloaded the same day. An upload is accepted whole or rejected whole, with the reason.</p>
-    <p><button type="submit">Upload</button></p>
+    <p class="actions"><button type="submit" formaction="check" class="secondary">Check files</button> <button type="submit">Upload</button></p>
   </form>
+  {% if check %}
+  <div class="check {{ 'ready' if check.ready else 'not-ready' }}">
+    <h3 style="margin:0 0 6px">{% if check.ready %}✓ Ready to upload{% else %}✗ Not ready – nothing was imported{% endif %}</h3>
+    <ul class="check-files">{% for f in check.files %}
+      <li><span class="mark {{ 'ok' if f.ok else 'bad' }}" aria-label="{{ 'recognised' if f.ok else 'problem' }}">{{ "✓" if f.ok else "✗" }}</span>
+        <strong>{{ f.name }}</strong> – {{ f.kind }}<div class="muted small">{{ f.detail }}</div></li>{% endfor %}
+    </ul>
+    {% for r in check.reasons %}<p class="error small">✗ {{ r }}</p>{% endfor %}
+    {% if check.ready %}
+    <form method="post" action="import">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% for name, sha in check.staged %}<input type="hidden" name="name" value="{{ name }}"><input type="hidden" name="sha" value="{{ sha }}">{% endfor %}
+      <button type="submit">Import these {{ check.staged|length }} file(s)</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
   <form method="post" action="recalc" style="margin-top:8px">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button type="submit" class="secondary">Recalculate from stored statements</button>
