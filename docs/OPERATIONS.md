@@ -238,3 +238,38 @@ keeps no access log.
 - **Secrets** exist only in `.env` on the server, never in the repository. The
   test fixtures are redacted, and a test fails if personal data appears in
   any tracked file.
+
+## Portfolio worksheet sync
+
+After every new report, the site can update the hand-built portfolio workbook
+(the `.xlsx` on Google Drive) so its Dashboard and other tabs show the same
+data as the website. It only touches the input rows of the **Awaed** and
+**Manafa** tabs; formulas, charts, comments and every other tab are left as
+they are, and Drive keeps the previous version in the file's version history.
+
+* **Manafa:** rows are found by Opportunity ID. A row changes only when its
+  status changes (e.g. Active → Closed: the status, payment date and the gross
+  profit, fee and VAT actually paid are filled in). Mandate positions missing
+  from the sheet are appended (Funding Source is set to "Reinvested Capital";
+  correct it if needed; the sync will not overwrite it).
+* **Awaed:** rows are lined up with the confirmations in date order and checked
+  against principal and profit; if they do not line up, Awaed is left alone
+  and the admin page says why. Existing rows only get their status updated;
+  new confirmations are appended.
+* The formulas in the workbook run down to row 65; to hold more rows, fill
+  the formula columns further down.
+
+Set-up (once):
+
+1. In Google Cloud (console.cloud.google.com) create a project, enable the
+   **Google Drive API**, create a **service account** and add a **JSON key**.
+2. In Google Drive, **share the workbook with the service account's e-mail
+   address as Editor** (only that file; nothing else becomes reachable).
+3. In Vercel → Settings → Environment Variables add
+   `GOOGLE_SERVICE_ACCOUNT_JSON` (the key file's contents, Sensitive) and
+   `SHEET_SYNC_FILE_ID` (the workbook's Drive ID, from its link), then redeploy.
+4. On the admin page, press **Sync worksheet now** once to check it works.
+
+If Drive cannot be reached during an upload, the report is still created and
+the sync is retried by the scheduled worker; the admin page shows the last
+result.

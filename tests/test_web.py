@@ -245,6 +245,7 @@ def test_check_files_then_import(client):
     admin_login(client)
     page = client.get(f"/a/{ADMIN}/admin").text
     assert 'formaction="check"' in page and "No files chosen yet" in page
+    assert "Portfolio worksheet" in page and "Not connected" in page
     token = csrf_of(page)
     pair = [MANAFA / "2026-09-24_portfolio.xlsx", MANAFA / "2026-09-24_account_statement.xlsx"]
     r = client.post(f"/a/{ADMIN}/check", data={"csrf": token},

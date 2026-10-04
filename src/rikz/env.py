@@ -79,11 +79,21 @@ def open_store(env: Env | None = None):
     if env.file_store == "database":
         from .store.db_files import DbFileStore
 
-        return Store(Session, DbFileStore(Session), env.config_dir)
+        return _with_sheet_sync(Store(Session, DbFileStore(Session), env.config_dir))
     if env.file_store == "supabase":
         from .store.supabase_files import SupabaseFileStore
 
         files = SupabaseFileStore(env.supabase_url, env.supabase_key, env.supabase_bucket)
     else:
         files = FileStore(env.file_store_dir)
-    return Store(Session, files, env.config_dir)
+    return _with_sheet_sync(Store(Session, files, env.config_dir))
+
+
+def _with_sheet_sync(store):
+    """Keep the Drive workbook in step with each new report when configured
+    (SHEET_SYNC_FILE_ID plus GOOGLE_SERVICE_ACCOUNT_JSON)."""
+    from . import sheet_sync
+
+    if sheet_sync.configured():
+        sheet_sync.attach(store)
+    return store

@@ -167,6 +167,17 @@ class Store:
             s.commit()
             return IngestResult(b.id, status, reasons, notes)
 
+    def latest_batch(self):
+        """The parsed statements behind the latest report, with the mandate
+        rule in force: (batch, rule), or (None, rule) before the first report."""
+        rule, ledger, _ = self._config()
+        with self.Session() as s:
+            inputs, _ = self._inputs(s)
+            if not any(f.kind == "account_statement" for f in inputs):
+                return None, rule
+            files = [(f.name, self._get(s, f.sha256)) for f in inputs]
+        return parse_batch(files, rule=rule, ledger=ledger), rule
+
     def _inputs(self, s: Session) -> tuple[list[StoredFile], list[str]]:
         """All Awaed confirmations plus the latest Manafa statement that has its export."""
         stored = s.scalars(select(StoredFile)).all()

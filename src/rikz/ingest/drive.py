@@ -55,18 +55,38 @@ class GoogleDrive:
 
     API = "https://www.googleapis.com/drive/v3"
 
-    def __init__(self, info: dict):
+    def __init__(self, info: dict, write: bool = False):
         from google.oauth2 import service_account
 
-        self.creds = service_account.Credentials.from_service_account_info(
-            info, scopes=["https://www.googleapis.com/auth/drive.readonly"])
+        # Writing is only used to update the portfolio workbook (sheet_sync);
+        # it reaches only the files shared with the service account as Editor.
+        scope = "https://www.googleapis.com/auth/drive" if write else "https://www.googleapis.com/auth/drive.readonly"
+        self.creds = service_account.Credentials.from_service_account_info(info, scopes=[scope])
 
     @classmethod
-    def from_env(cls) -> "GoogleDrive":
+    def from_env(cls, write: bool = False) -> "GoogleDrive":
         raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
         if not raw:
             raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is not set")
-        return cls(json.loads(raw))
+        return cls(json.loads(raw), write=write)
+
+    def download_id(self, file_id: str) -> bytes:
+        import httpx
+
+        r = httpx.get(f"{self.API}/files/{file_id}", params={"alt": "media", "supportsAllDrives": "true"},
+                      headers=self._headers(), timeout=120, follow_redirects=True)
+        r.raise_for_status()
+        return r.content
+
+    def upload_id(self, file_id: str, data: bytes) -> None:
+        """Replace the file's content. Drive keeps the previous version in the
+        file's version history."""
+        import httpx
+
+        r = httpx.patch(f"https://www.googleapis.com/upload/drive/v3/files/{file_id}",
+                        params={"uploadType": "media", "supportsAllDrives": "true"}, content=data,
+                        headers={**self._headers(), "Content-Type": XLSX}, timeout=120)
+        r.raise_for_status()
 
     def _headers(self) -> dict:
         import google.auth.transport.requests
