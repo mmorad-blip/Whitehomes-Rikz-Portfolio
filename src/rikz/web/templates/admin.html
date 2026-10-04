@@ -80,6 +80,20 @@
   </form>
 </div>
 
+<h2>Portfolio worksheet</h2>
+<div class="panel small">
+{% if not sheet_sync.configured %}<p class="muted">Not connected. When set up, every new report also updates the Awaed and Manafa rows of the portfolio workbook on Google Drive.</p>
+{% else %}
+{% set last = sheet_sync.last %}
+{% if not last %}<p class="muted">Connected; nothing synced yet. It runs after each new report.</p>
+{% elif last.ok %}<p><span class="badge ok">✓ in step</span> Last synced {{ last.at[:16].replace("T", " ") }} UTC{% if last.as_of %} with the report as of {{ last.as_of }}{% endif %}.</p>
+{% if last.changes %}<ul>{% for c in last.changes %}<li>{{ c }}</li>{% endfor %}</ul>{% else %}<p class="muted">No changes were needed.</p>{% endif %}
+{% for c in last.skipped %}<p class="error">{{ c }}</p>{% endfor %}
+{% else %}<p><span class="badge bad">✗ failed</span> {{ last.at[:16].replace("T", " ") }} UTC: {{ last.error }}. It will be retried.</p>{% endif %}
+<form method="post" action="sheet-sync" style="margin:8px 0 0"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary">Sync worksheet now</button></form>
+{% endif %}
+</div>
+
 <h2>Recent uploads</h2>
 <div class="panel table-wrap"><table>
 <tr><th>#</th><th>When (UTC)</th><th>Source</th><th>Status</th><th>Files</th><th>Details</th><th>Report</th></tr>

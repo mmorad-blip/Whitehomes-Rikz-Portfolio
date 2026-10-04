@@ -323,7 +323,14 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             "drive_last": json.loads(last) if last else None,
             "links": {"shareholder": access.link("shareholder"), "admin": access.link("admin")},
             "notices": notices, "sent": sent, "version_of": version_of,
+            "sheet_sync": sheet_sync_status(),
         }
+
+    def sheet_sync_status() -> dict:
+        from .. import sheet_sync
+
+        last = get_meta(store.Session, "sheet_sync_last")
+        return {"configured": sheet_sync.configured(), "last": json.loads(last) if last else None}
 
     @app.get("/{area}/{token}/admin", response_class=HTMLResponse)
     def admin(request: Request, area: str, token: str):
@@ -420,6 +427,27 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             rows.append({"name": name, "ok": True, "kind": label, "detail": detail})
         reasons = store.check(payload) if ok else []
         return {"files": rows, "reasons": reasons, "ready": ok and not reasons}
+
+    @app.post("/{area}/{token}/sheet-sync", response_class=HTMLResponse)
+    def sheet_sync_now(request: Request, area: str, token: str, csrf: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        from .. import sheet_sync
+
+        ctx = admin_context(request, session)
+        if not sheet_sync.configured():
+            ctx["flash"] = "Worksheet sync is not set up (SHEET_SYNC_FILE_ID and GOOGLE_SERVICE_ACCOUNT_JSON)."
+        else:
+            try:
+                r = sheet_sync.sync(store)
+                ctx["flash"] = (f"Worksheet updated: {len(r['changes'])} change(s)." if r["changes"]
+                                else "Worksheet checked: already up to date.")
+            except Exception as exc:  # noqa: BLE001
+                ctx["flash"] = f"Worksheet sync failed: {type(exc).__name__}: {exc}"[:300]
+            ctx = {**admin_context(request, session), "flash": ctx["flash"]}
+        return templates.TemplateResponse(request, "admin.html", ctx)
 
     @app.post("/{area}/{token}/recalc", response_class=HTMLResponse)
     def recalc(request: Request, area: str, token: str, csrf: str = Form("")):
