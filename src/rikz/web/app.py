@@ -338,13 +338,7 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
         _, redirect = need_admin(request, area, token)
         return redirect or RedirectResponse(base_url("admin") + "admin", status_code=303)
 
-    @app.post("/{area}/{token}/upload", response_class=HTMLResponse)
-    async def upload(request: Request, area: str, token: str, files: list[UploadFile] = File(...),
-                     csrf: str = Form("")):
-        session, redirect = need_admin(request, area, token)
-        if redirect:
-            return redirect
-        check_csrf(session, csrf)
+    async def read_upload(files: list[UploadFile]) -> list[tuple[str, bytes]]:
         if len(files) > MAX_FILES:
             raise HTTPException(413, f"Upload at most {MAX_FILES} files at a time.")
         payload = []
@@ -356,8 +350,76 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
                 payload.append((Path(f.filename or "upload").name, data))
         if not payload:
             raise HTTPException(400, "No files were attached.")
+        return payload
+
+    @app.post("/{area}/{token}/upload", response_class=HTMLResponse)
+    async def upload(request: Request, area: str, token: str, files: list[UploadFile] = File(...),
+                     csrf: str = Form("")):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        result = store.ingest(await read_upload(files), source="upload")
+        return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
+
+    @app.post("/{area}/{token}/check", response_class=HTMLResponse)
+    async def check_upload(request: Request, area: str, token: str, files: list[UploadFile] = File(...),
+                           csrf: str = Form("")):
+        """Say, file by file, whether an upload would be accepted, without
+        importing anything. When it would, the files are kept in the
+        content-addressed store so they can be imported without choosing
+        them again."""
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        check_csrf(session, csrf)
+        payload = await read_upload(files)
+        report = inspect_upload(payload)
+        if report["ready"]:
+            report["staged"] = [(name, store.files.put(data)) for name, data in payload]
+        ctx = admin_context(request, session)
+        ctx["check"] = report
+        return templates.TemplateResponse(request, "admin.html", ctx)
+
+    @app.post("/{area}/{token}/import", response_class=HTMLResponse)
+    async def import_checked(request: Request, area: str, token: str):
+        session, redirect = need_admin(request, area, token)
+        if redirect:
+            return redirect
+        form = await request.form()
+        check_csrf(session, str(form.get("csrf", "")))
+        names, shas = form.getlist("name"), form.getlist("sha")
+        if not names or len(names) != len(shas) or len(names) > MAX_FILES:
+            raise HTTPException(400, "Nothing to import; check the files again.")
+        try:
+            payload = [(Path(str(n)).name, store.files.get(str(h))) for n, h in zip(names, shas)]
+        except Exception:  # unknown or altered file: get() checks every hash
+            raise HTTPException(400, "Those files are no longer available; check them again.") from None
         result = store.ingest(payload, source="upload")
         return templates.TemplateResponse(request, "admin.html", admin_context(request, session, result))
+
+    def inspect_upload(payload: list[tuple[str, bytes]]) -> dict:
+        from ..errors import Rejected
+        from ..parsers.detect import parse_file
+
+        rows, ok = [], True
+        for name, data in payload:
+            try:
+                rec = parse_file(name, data)
+            except Rejected as exc:
+                rows.append({"name": name, "ok": False, "kind": "Not recognised", "detail": str(exc)})
+                ok = False
+                continue
+            kind = rec.source.kind
+            if kind == "murabaha_confirmation":
+                label, detail = "Awaed confirmation", f"order {rec.order_id}, {rec.order_date}, {rec.principal:,.2f} SAR"
+            elif kind == "portfolio_export":
+                label, detail = "Manafa portfolio export", f"{len(rec.open)} current, {len(rec.closed)} past positions"
+            else:
+                label, detail = "Manafa account statement", f"{rec.period_start} to {rec.period_end}"
+            rows.append({"name": name, "ok": True, "kind": label, "detail": detail})
+        reasons = store.check(payload) if ok else []
+        return {"files": rows, "reasons": reasons, "ready": ok and not reasons}
 
     @app.post("/{area}/{token}/recalc", response_class=HTMLResponse)
     def recalc(request: Request, area: str, token: str, csrf: str = Form("")):

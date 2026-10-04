@@ -79,6 +79,15 @@ def parse_batch(
     try:
         if batch.export and batch.statement:
             batch.matching = match(batch.export, batch.statement)
+            for r in batch.matching.pending:
+                if r.date >= rule.funded_from and -r.amount >= rule.min_principal:
+                    # It would belong to the mandate, but without its position the
+                    # money would silently drop out of the mandate's NAV.
+                    raise Rejected(
+                        f"statement row {r.row} invests {-r.amount:,.2f} on {r.date}, which is mandate-sized, but the "
+                        "export does not list it yet (the opportunity is probably still being funded). Upload again "
+                        "once it shows under current investments on Manafa"
+                    )
             batch.reconciliation = reconcile(batch.statement, batch.matching, rule, ledger)
             batch.notes.extend(batch.matching.notes)
             for c in batch.reconciliation.missing_contributions:

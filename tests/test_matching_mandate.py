@@ -3,6 +3,7 @@ from decimal import Decimal as D
 
 import pytest
 
+from conftest import MANAFA, edited
 from rikz.errors import Rejected
 from rikz.manafa.mandate import in_mandate, reconcile
 from rikz.manafa.matching import match
@@ -76,3 +77,45 @@ def test_mandate_realised_profit(m24, rule):
 def test_mismatched_pair_rejected(export_0924, stmt_0906):
     with pytest.raises(Rejected, match="after the statement ends"):
         match(export_0924, stmt_0906)
+
+
+def _without_row(row):
+    def edit(wb):
+        wb.worksheets[0].delete_rows(row)
+    return edit
+
+
+def _pair_0924(export_bytes):
+    stmt = MANAFA / "2026-09-24_account_statement.xlsx"
+    return [("2026-09-24_portfolio.xlsx", export_bytes), (stmt.name, stmt.read_bytes())]
+
+
+def test_recent_investment_missing_from_export_is_pending(rule, ledger):
+    from rikz.batch import parse_batch
+
+    full = parse_batch(_pair_0924((MANAFA / "2026-09-24_portfolio.xlsx").read_bytes()), rule=rule, ledger=ledger)
+    # 2,000 funded on 11 Sep: still raising funds when the export was taken
+    b = parse_batch(_pair_0924(edited(MANAFA / "2026-09-24_portfolio.xlsx", _without_row(22))), rule=rule, ledger=ledger)
+    assert [r.date.isoformat() for r in b.matching.pending] == ["2026-09-11"]
+    assert any("not in the export yet" in n for n in b.notes)
+    # below the mandate's minimum, so the mandate's cash is unchanged
+    assert b.reconciliation.mandate_cash == full.reconciliation.mandate_cash
+
+
+def test_pending_investment_of_mandate_size_is_refused(rule, ledger):
+    import dataclasses
+
+    from rikz.batch import BatchRejected, parse_batch
+
+    small_floor = dataclasses.replace(rule, min_principal=D("1000.00"))
+    with pytest.raises(BatchRejected, match="mandate-sized"):
+        parse_batch(_pair_0924(edited(MANAFA / "2026-09-24_portfolio.xlsx", _without_row(22))),
+                    rule=small_floor, ledger=ledger)
+
+
+def test_old_investment_missing_from_export_is_still_refused(rule, ledger):
+    from rikz.batch import BatchRejected, parse_batch
+
+    # funded 20 Aug, 35 days before the statement ends: not a pending opportunity
+    with pytest.raises(BatchRejected, match="no position in the export matches it"):
+        parse_batch(_pair_0924(edited(MANAFA / "2026-09-24_portfolio.xlsx", _without_row(17))), rule=rule, ledger=ledger)
