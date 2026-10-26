@@ -186,14 +186,16 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     as_of = snapshot.as_of
     holdings = doc.get("holdings", [])
     cur_w, prev_w = periods.windows(period, as_of)
-    cur = periods.measure(holdings, as_of, cur_w)
+    monthly = t.get("monthly", [])
+    cur = periods.with_capital(periods.measure(holdings, as_of, cur_w), monthly, cur_w)
     # Before the first position there is nothing to compare against.
-    prv = periods.measure(holdings, as_of, prev_w) if periods.covered(holdings, prev_w) else None
-    series = periods.monthly_series(holdings, as_of)
+    prv = (periods.with_capital(periods.measure(holdings, as_of, prev_w), monthly, prev_w)
+           if periods.covered(holdings, prev_w) else None)
+    series = periods.monthly_series(holdings, as_of, monthly=monthly)
     start_point = periods.point_at(versions, snapshot.version, cur_w.start)
     start_head = start_point[2] if start_point else {}
     history = sorted((a, ver, head or {}) for ver, a, _, head in versions if ver <= snapshot.version and a is not None)
-    new_capital = periods.contributed(t.get("monthly", []), cur_w)
+    new_capital = cur["injected"]
     vs_prev = f"vs {prev_w.label()}"
     vs_start = f"vs {start_point[1]:%d %b %Y}" if start_point else None
 
@@ -237,9 +239,11 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
         flow_kpi("realised", "Realised profit", "SAR",
                  badge=(f"{cur['closed']} closed", "info") if cur["closed"] else None),
         flow_kpi("yield", "Annualised yield", "ratio", slot=3,
-                 badge=(f"on SAR {_k(cur['avg_capital'])} deployed", "info") if cur["avg_capital"] else None),
-        flow_kpi("deployed", "New capital deployed", "SAR", slot=2,
-                 badge=(f"{cur['opened']} positions", "info") if cur["opened"] else None),
+                 badge=(f"on SAR {_k(cur['avg_capital'])} avg. capital", "info") if cur["avg_capital"] else None),
+        flow_kpi("injected", "New capital injected", "SAR", slot=2,
+                 badge=("No new money", "info") if not cur["injected"] else None,
+                 sub=(f"SAR {_k(cur['deployed'])} placed in {cur['opened']} positions, "
+                      f"SAR {_k(cur['reinvested'])} of it reinvested") if cur["opened"] else None),
         point_kpi("total.idle", "Idle cash", "ratio", "down", check="Max idle cash"),
         point_kpi("credit.troubled_total_nav", "Troubled exposure", "ratio", "down", check="Max troubled exposure"),
     ]
@@ -260,11 +264,13 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
             row("Realised profit (cash received)", "realised", "SAR"),
             row("Income earned (accrual basis)", "earned", "SAR"),
             row("Annualised yield on deployed capital", "yield", "ratio"),
-            row("Average capital deployed", "avg_capital", "SAR"),
-            row("New capital deployed", "deployed", "SAR"),
+            row("Average capital at work", "avg_capital", "SAR"),
+            row("New capital injected", "injected", "SAR"),
+            row("Gross placements (incl. rollovers)", "deployed", "SAR"),
+            row("of which reinvested from returns", "reinvested", "SAR"),
+            row("Principal returned", "closed_principal", "SAR"),
             row("Positions opened", "opened", "n"),
             row("Positions closed", "closed", "n"),
-            row("Principal returned", "closed_principal", "SAR"),
         ],
     }
     period_ctx = {
@@ -383,6 +389,7 @@ def monthly_reports(snapshot, versions: list) -> list[dict]:
     """
     doc = json.loads(snapshot.report)
     holdings = doc.get("holdings", [])
+    monthly = doc.get("tables", {}).get("monthly", [])
     as_of = snapshot.as_of
     first = periods.inception(holdings)
     if first is None:
@@ -398,8 +405,9 @@ def monthly_reports(snapshot, versions: list) -> list[dict]:
             pw = periods.Window(pm, periods._month_end(pm))
         else:
             w, pw = periods.windows("month", as_of)
-        cur = periods.measure(holdings, as_of, w)
-        prv = periods.measure(holdings, as_of, pw) if periods.covered(holdings, pw) else None
+        cur = periods.with_capital(periods.measure(holdings, as_of, w), monthly, w)
+        prv = (periods.with_capital(periods.measure(holdings, as_of, pw), monthly, pw)
+               if periods.covered(holdings, pw) else None)
         published = [(a, ver, head or {}) for ver, a, _, head in versions
                      if ver <= snapshot.version and a is not None and m <= periods._d(a) <= end]
         last = max(published, key=lambda x: (x[0], x[1])) if published else None
@@ -433,8 +441,11 @@ def monthly_reports(snapshot, versions: list) -> list[dict]:
                 row("Profit received", "realised", "SAR"),
                 row("Profit earned (accrual)", "earned", "SAR"),
                 row("Annualised yield on capital", "yield", "ratio"),
-                row("Average capital deployed", "avg_capital", "SAR"),
-                row("New capital placed", "deployed", "SAR"),
+                row("Average capital at work", "avg_capital", "SAR"),
+                row("New capital injected", "injected", "SAR"),
+                row("Gross placements (incl. rollovers)", "deployed", "SAR"),
+                row("of which reinvested from returns", "reinvested", "SAR"),
+                row("Principal returned", "closed_principal", "SAR"),
                 row("Positions opened", "opened", "n"),
                 row("Positions closed", "closed", "n"),
             ],
