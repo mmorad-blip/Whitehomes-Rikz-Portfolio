@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from ..store.db import Batch, DriveFile, Job, Meta, Notification, Snapshot, ViewLog, get_meta, set_meta
-from . import views
+from . import periods, views
 from .auth import AccessConfig, check_key
 from .security import SecurityMiddleware, locked_out, record_attempt
 
@@ -220,10 +220,11 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     def headline_key(version: int) -> str:
         return f"headline.v{version}"
 
-    def build_ctx(snap, versions, pdf: bool = False) -> dict:
-        return views.build(snap, versions, pdf=pdf, headline_override=get_meta(store.Session, headline_key(snap.version)))
+    def build_ctx(snap, versions, pdf: bool = False, period: str | None = None) -> dict:
+        return views.build(snap, versions, pdf=pdf, headline_override=get_meta(store.Session, headline_key(snap.version)),
+                           period=period or periods.DEFAULT)
 
-    def report_page(request: Request, area: str, token: str, v: int | None, page: str):
+    def report_page(request: Request, area: str, token: str, v: int | None, page: str, p: str | None = None):
         role, session, redirect = need_session(request, area, token)
         if redirect:
             return redirect
@@ -233,14 +234,14 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
             if page == "overview":
                 return templates.TemplateResponse(request, "empty.html", {"role": role, "base": base_url(role)})
             raise HTTPException(404)
-        ctx = build_ctx(snap, versions)
+        ctx = build_ctx(snap, versions, period=p)
         template = "positions.html" if page == "positions" else "dashboard.html"
         return templates.TemplateResponse(request, template, {**ctx, "role": role, "base": base_url(role),
                                                               "pdf": False, "page": page, "active": page})
 
     @app.get("/{area}/{token}/", response_class=HTMLResponse)
-    def dashboard(request: Request, area: str, token: str, v: int | None = None):
-        return report_page(request, area, token, v, "overview")
+    def dashboard(request: Request, area: str, token: str, v: int | None = None, p: str | None = None):
+        return report_page(request, area, token, v, "overview", p)
 
     @app.get("/{area}/{token}/risk", response_class=HTMLResponse)
     def risk(request: Request, area: str, token: str, v: int | None = None):
