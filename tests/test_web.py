@@ -123,6 +123,23 @@ def test_report_tabs(client):
     assert client.get(f"/v/{VIEW}/risk?v=9").status_code == 404
 
 
+def test_monthly_reports(client):
+    r = client.get(f"/v/{VIEW}/reports", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith("/login")
+    login(client, "v", VIEW, "SHARE-1234")
+    page = client.get(f"/v/{VIEW}/reports")
+    assert page.status_code == 200 and "Monthly reports" in page.text
+    keys = re.findall(r"reports\?m=(\d{4}-\d{2})", page.text)
+    assert keys and keys == sorted(keys, reverse=True)
+    month = client.get(f"/v/{VIEW}/reports?m={keys[-1]}").text
+    assert "Positions opened" in month and "Download PDF" in month
+    assert client.get(f"/v/{VIEW}/reports?m=1999-01").status_code == 404
+    pdf = client.get(f"/v/{VIEW}/reports/{keys[-1]}.pdf")
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"].startswith("application/pdf") or "Save as PDF" in pdf.text
+    assert client.get(f"/v/{VIEW}/reports/1999-01.pdf").status_code == 404
+
+
 def test_admin_can_replace_the_headline(client):
     admin_login(client)
     page = client.get(f"/a/{ADMIN}/admin").text

@@ -255,6 +255,51 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
     def positions(request: Request, area: str, token: str, v: int | None = None):
         return report_page(request, area, token, v, "positions")
 
+    def render_pdf(request: Request, template: str, ctx: dict, name: str):
+        html = templates.get_template(template).render({**ctx, "pdf": True, "request": request})
+        try:
+            from weasyprint import HTML
+        except OSError:
+            # The host lacks WeasyPrint's system libraries (e.g. Vercel): serve
+            # the print layout; the browser's Print → Save as PDF gives the file.
+            return templates.TemplateResponse(request, template, {**ctx, "pdf": True, "print_hint": True})
+        return Response(HTML(string=html).write_pdf(), media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    def monthly(request: Request, area: str, token: str, v: int | None):
+        role, session, redirect = need_session(request, area, token)
+        if redirect:
+            return None, None, redirect
+        snap, versions = load_snapshot(v)
+        log_view(request, role, snap.version if snap else None)
+        if snap is None:
+            raise HTTPException(404)
+        ctx = {"snapshot": snap, "versions": versions, "reports": views.monthly_reports(snap, versions),
+               "role": role, "base": base_url(role), "active": "reports"}
+        return ctx, snap, None
+
+    @app.get("/{area}/{token}/reports", response_class=HTMLResponse)
+    def reports(request: Request, area: str, token: str, v: int | None = None, m: str | None = None):
+        ctx, snap, redirect = monthly(request, area, token, v)
+        if redirect:
+            return redirect
+        month = next((r for r in ctx["reports"] if r["key"] == m), None) if m else None
+        if m and month is None:
+            raise HTTPException(404)
+        month = month or next(iter(ctx["reports"]), None)
+        return templates.TemplateResponse(request, "reports.html", {**ctx, "month": month, "pdf": False})
+
+    @app.get("/{area}/{token}/reports/{key}.pdf")
+    def report_month_pdf(request: Request, area: str, token: str, key: str, v: int | None = None):
+        ctx, snap, redirect = monthly(request, area, token, v)
+        if redirect:
+            return redirect
+        month = next((r for r in ctx["reports"] if r["key"] == key), None)
+        if month is None:
+            raise HTTPException(404)
+        return render_pdf(request, "reports.html", {**ctx, "month": month},
+                          f"rikz-monthly-report-{key}.pdf")
+
     @app.get("/{area}/{token}/report.pdf")
     def pdf(request: Request, area: str, token: str, v: int | None = None):
         role, session, redirect = need_session(request, area, token)
