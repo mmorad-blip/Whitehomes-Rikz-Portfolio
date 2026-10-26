@@ -1,5 +1,12 @@
 {% if not pdf %}<p class="page-intro muted small">Manafa statement {{ coverage.manafa.statement_from }} to {{ coverage.manafa.statement_to }} · {{ coverage.awaed.confirmations }} Awaed confirmations</p>{% endif %}
 
+<div class="panel card changes">
+  <div class="card-hd"><h2>What this upload changed</h2><span class="unit-note">Against the previous report</span></div>
+  {% for title, items in change_groups %}<div class="cgroup"><h3>{{ title }}</h3><ul>
+  {% for c in items %}<li>{{ c.text }}</li>{% endfor %}</ul></div>
+  {% else %}<p class="muted small">No changes.</p>{% endfor %}
+</div>
+
 <div class="cards">
   <div class="panel card">
     <div class="card-hd"><h2>Reconciliation, checks and notes</h2></div>

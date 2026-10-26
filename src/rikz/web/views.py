@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from markupsafe import Markup
 
-from . import charts
+from . import charts, periods
 
 
 def D(v) -> Decimal | None:
@@ -96,22 +96,52 @@ def _delta(new, old, unit: str, better: str) -> dict | None:
     return {"text": text, "cls": "up" if good else "down", "arrow": arrow}
 
 
-def auto_headline(v, prev: dict | None) -> str:
-    """One line in plain words from the figures; admin may replace it."""
-    nav, real, contrib = v("total.nav"), v("total.realised"), v("total.contributed")
+def _delta_pct(new, old) -> dict | None:
+    """Change of a SAR flow against the previous period, as a percentage."""
+    if new is None or old is None:
+        return None
+    d = new - old
+    if abs(d) < Decimal("0.005"):
+        return {"text": "no change", "cls": "flat", "arrow": "–"}
+    arrow, cls = ("▲", "up") if d > 0 else ("▼", "down")
+    text = f"{abs(d) / abs(old) * 100:.1f}%" if old else f"SAR {abs(d):,.0f}"
+    return {"text": text, "cls": cls, "arrow": arrow}
+
+
+def _delta_count(new: int, old: int) -> dict:
+    if new == old:
+        return {"text": "no change", "cls": "flat", "arrow": "–"}
+    return {"text": str(abs(new - old)), "cls": "flat", "arrow": "▲" if new > old else "▼"}
+
+
+def auto_headline(v, cur: dict, prv: dict, label: str, prev_label: str) -> str:
+    """One line in plain words from the period figures; admin may replace it."""
+    nav = v("total.nav")
     if nav is None:
         return "Portfolio report"
-    if prev and prev.get("total.nav") is not None:
-        dn = nav - D(prev["total.nav"])
-        dr = (real or 0) - D(prev.get("total.realised") or 0)
-        lead = f"Realised profit up SAR {dr:,.0f}" if dr >= 1 else "No new realised profit"
-        if abs(dn) < 1:
-            return f"{lead}, with NAV unchanged at SAR {_k(nav)}"
-        verb = "rises" if dn > 0 else "slips"
-        return f"{lead} {'as' if dr >= 1 else 'while'} NAV {verb} to SAR {_k(nav)}"
-    if contrib:
-        return f"NAV of SAR {_k(nav)} on SAR {_k(contrib)} contributed"
-    return f"NAV of SAR {_k(nav)}"
+    real, old = cur["realised"], prv["realised"]
+    if real < 1:
+        lead = f"No profit realised in {label}"
+    elif old >= 1:
+        change = (real - old) / old * 100
+        word = "up" if change >= 0 else "down"
+        lead = f"SAR {_k(real)} realised in {label}, {word} {abs(change):.0f}% on {prev_label}"
+    else:
+        lead = f"SAR {_k(real)} realised in {label}"
+    return f"{lead}, with NAV at SAR {_k(nav)}"
+
+
+def _period_sentence(cur: dict, prv: dict, label: str, prev_label: str) -> Markup:
+    y, py = cur["yield"], prv["yield"]
+    text = Markup("In {}, <strong>SAR {}</strong> of profit was received and SAR {} earned on an accrual basis "
+                  "(SAR {} and SAR {} in {}).").format(
+        label, f"{cur['realised']:,.2f}", f"{cur['earned']:,.2f}", f"{prv['realised']:,.2f}",
+        f"{prv['earned']:,.2f}", prev_label)
+    if y is not None:
+        text += Markup(" Deployed capital averaged SAR {} and yielded <strong>{:.2f}%</strong> a year{}.").format(
+            f"{cur['avg_capital']:,.0f}", y * 100,
+            Markup(", against {:.2f}%").format(py * 100) if py is not None else "")
+    return text
 
 
 def _summary(v, breaches: list[dict]) -> Markup:
@@ -140,7 +170,8 @@ def _summary(v, breaches: list[dict]) -> Markup:
     return Markup(" ").join(parts)
 
 
-def build(snapshot, versions: list, pdf: bool = False, headline_override: str | None = None) -> dict:
+def build(snapshot, versions: list, pdf: bool = False, headline_override: str | None = None,
+          period: str = periods.DEFAULT) -> dict:
     doc = json.loads(snapshot.report)
     figs = {k: {**f, "value": D(f["value"]), "excel": D(f.get("excel"))} for k, f in doc["figures"].items()}
     t = doc["tables"]
@@ -148,40 +179,88 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     def v(key):
         return figs[key]["value"] if key in figs else None
 
-    history = sorted((ver, head or {}) for ver, _, _, head in versions if ver <= snapshot.version)
-    prev = history[-2][1] if len(history) > 1 else None
-    prev_version = history[-2][0] if len(history) > 1 else None
+    if period not in dict(periods.PERIODS):
+        period = periods.DEFAULT
+    as_of = snapshot.as_of
+    holdings = doc.get("holdings", [])
+    cur_w, prev_w = periods.windows(period, as_of)
+    cur, prv = periods.measure(holdings, as_of, cur_w), periods.measure(holdings, as_of, prev_w)
+    series = periods.monthly_series(holdings, as_of)
+    start_point = periods.point_at(versions, snapshot.version, cur_w.start)
+    start_head = start_point[2] if start_point else {}
+    history = sorted((a, ver, head or {}) for ver, a, _, head in versions if ver <= snapshot.version and a is not None)
+    new_capital = periods.contributed(t.get("monthly", []), cur_w)
+    vs_prev = f"vs {prev_w.label()}"
+    vs_start = f"vs {start_point[1]:%d %b %Y}" if start_point else None
+
     policy = t.get("policy", [])
-    kpis = []
-    for key, label, unit, better, check in KPI_SPECS:
-        val = v(key)
-        row = next((r for r in policy if r["check"].startswith(check)), None) if check else None
+
+    def limit_bar(check, val):
+        row = next((r for r in policy if r["check"].startswith(check)), None)
+        if not row or val is None:
+            return None, None
+        lim = _limit(row["limit"])
         bar = None
-        if row and val is not None:
-            lim = _limit(row["limit"])
-            if lim:
-                ratio = val / lim
-                bar = {"fill": float(min(ratio, 1)) * 100, "cls": "bad" if row["status"] == "BREACH" else "ok",
-                       "left": f"{ratio * 100:.0f}% of limit", "right": f"limit {row['limit']}"}
-        badge = None
-        if key == "total.nav" and v("total.roc") is not None:
-            roc = v("total.roc")
-            badge = (f"{roc * 100:+.1f}% on capital", "ok" if roc >= 0 else "bad")
-        elif key == "total.realised" and v("total.cw_yield") is not None:
-            badge = (f"{v('total.cw_yield') * 100:.1f}% yield, closed", "info")
-        elif key == "total.xirr" and v("total.vs_target") is not None:
-            vt = v("total.vs_target")
-            badge = (f"{vt * 100:+.1f} pts vs target", "ok" if vt >= 0 else "bad")
-        elif key == "total.xirr_recovery":
-            badge = ("0% loss on defaults", "info")
-        elif row:
-            badge = (row["status"], "bad" if row["status"] == "BREACH" else "ok")
-        trend = [D(h.get(key)) for _, h in history]
-        kpis.append({
-            "key": key, "label": label, "value": val, "unit": unit, "badge": badge, "bar": bar,
-            "delta": _delta(val, D(prev.get(key)) if prev and prev.get(key) is not None else None, unit, better),
-            "spark": charts.sparkline(trend, slot=SPARK_SLOT.get(key, 1), literal=pdf),
-        })
+        if lim:
+            ratio = val / lim
+            bar = {"fill": float(min(ratio, 1)) * 100, "cls": "bad" if row["status"] == "BREACH" else "ok",
+                   "left": f"{ratio * 100:.0f}% of limit", "right": f"limit {row['limit']}"}
+        return bar, (row["status"], "bad" if row["status"] == "BREACH" else "ok")
+
+    def point_kpi(key, label, unit, better, check=None, badge=None, sub=None):
+        val = v(key)
+        bar, status = limit_bar(check, val) if check else (None, None)
+        old = D(start_head.get(key)) if start_head.get(key) is not None else None
+        trend = [D(h.get(key)) for _, _, h in history]
+        return {"key": key, "label": label, "value": val, "unit": unit, "badge": badge or status, "bar": bar,
+                "vs": vs_start, "delta": _delta(val, old, unit, better), "sub": sub,
+                "spark": charts.sparkline(trend, slot=SPARK_SLOT.get(key, 1), literal=pdf)}
+
+    def flow_kpi(key, label, unit, badge=None, sub=None, slot=1):
+        val, old = cur[key], prv[key]
+        delta = _delta_pct(val, old) if unit == "SAR" else _delta(val, old, unit, "up")
+        return {"key": None, "label": label, "value": val, "unit": unit, "badge": badge, "bar": None,
+                "vs": vs_prev, "delta": delta, "sub": sub,
+                "spark": charts.sparkline([m[key] for m in series], slot=slot, literal=pdf)}
+
+    roc = v("total.roc")
+    nav_sub = f"SAR {new_capital:,.0f} new capital this period" if new_capital else None
+    kpis = [
+        point_kpi("total.nav", "NAV", "SAR", "up", sub=nav_sub,
+                  badge=(f"{roc * 100:+.1f}% on capital", "ok" if roc >= 0 else "bad") if roc is not None else None),
+        flow_kpi("realised", "Realised profit", "SAR",
+                 badge=(f"{cur['closed']} closed", "info") if cur["closed"] else None),
+        flow_kpi("yield", "Annualised yield", "ratio", slot=3,
+                 badge=(f"on SAR {_k(cur['avg_capital'])} deployed", "info") if cur["avg_capital"] else None),
+        flow_kpi("deployed", "New capital deployed", "SAR", slot=2,
+                 badge=(f"{cur['opened']} positions", "info") if cur["opened"] else None),
+        point_kpi("total.idle", "Idle cash", "ratio", "down", check="Max idle cash"),
+        point_kpi("credit.troubled_total_nav", "Troubled exposure", "ratio", "down", check="Max troubled exposure"),
+    ]
+
+    def row(label, key, unit):
+        a, b = cur[key], prv[key]
+        return {"label": label, "cur": a, "prev": b, "unit": unit,
+                "delta": (_delta_pct(a, b) if unit == "SAR" else _delta(a, b, unit, "up")) if unit != "n"
+                else _delta_count(a, b)}
+
+    comparison = {
+        "cur": cur_w.label(), "prev": prev_w.label(),
+        "rows": [
+            row("Realised profit (cash received)", "realised", "SAR"),
+            row("Income earned (accrual basis)", "earned", "SAR"),
+            row("Annualised yield on deployed capital", "yield", "ratio"),
+            row("Average capital deployed", "avg_capital", "SAR"),
+            row("New capital deployed", "deployed", "SAR"),
+            row("Positions opened", "opened", "n"),
+            row("Positions closed", "closed", "n"),
+            row("Principal returned", "closed_principal", "SAR"),
+        ],
+    }
+    period_ctx = {
+        "kind": period, "options": periods.PERIODS, "label": cur_w.label(), "prev_label": prev_w.label(),
+        "partial": cur_w.days != prev_w.days or as_of != periods._month_end(as_of),
+    }
 
     breaches = [r for r in policy if r["status"] == "BREACH"]
     below = [r for r in policy if r["status"] == "Below expected"]
@@ -194,20 +273,22 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
          " · ".join(f"{o['owner']} {_k(D(o['contributed']))}" for o in owners)),
         ("Open positions", str(sum(open_n.values())),
          " · ".join(f"{n} {s}" for s, n in open_n.items() if n) or "none open"),
-        ("Liquid within 30 days", f"{D(liquid['actual']) * 100:.1f}%" if liquid else "–",
-         f"of NAV · limit {liquid['limit']}" if liquid else ""),
+        ("XIRR since inception", f"{v('total.xirr') * 100:.2f}%" if v("total.xirr") is not None else "–",
+         f"{v('total.xirr_recovery') * 100:.2f}% if defaults recover in full"
+         if v("total.xirr_recovery") is not None else ""),
         ("Manafa statement to", date.fromisoformat(cov["manafa"]["statement_to"]).strftime("%d %b %Y"),
          f"{cov['awaed']['confirmations']} Awaed confirmations"),
     ]
+    auto = auto_headline(v, cur, prv, cur_w.label(), prev_w.label())
     hero = {
-        "headline": headline_override or auto_headline(v, prev),
-        "auto_headline": auto_headline(v, prev),
+        "headline": headline_override or auto,
+        "auto_headline": auto,
         "overridden": bool(headline_override),
-        "summary": _summary(v, breaches),
+        "summary": _period_sentence(cur, prv, cur_w.label(), prev_w.label()) + Markup(" ") + _summary(v, breaches),
         "badge": ((f"{len(breaches)} policy {'breach' if len(breaches) == 1 else 'breaches'}", "bad") if breaches
                   else (f"{len(below)} below expected", "warn") if below else ("Within policy", "ok")),
         "facts": facts,
-        "prev_version": prev_version,
+        "liquid": liquid,
     }
     comp = [
         ("Performing principal", v("total.active")),
@@ -235,6 +316,8 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
         "figs": figs,
         "tables": t,
         "kpis": kpis,
+        "period": period_ctx,
+        "comparison": comparison,
         "versions": versions,
         "coverage": snapshot.coverage,
         "changes": snapshot.changes,

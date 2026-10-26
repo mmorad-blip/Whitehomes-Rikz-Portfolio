@@ -95,7 +95,11 @@ def test_dashboard(client):
     assert "HttpOnly" in cookie and "samesite=strict" in cookie.lower() and f"Path=/v/{VIEW}/" in cookie
     page = client.get(f"/v/{VIEW}/").text
     assert "244,711.25" in page and "Report v2" in page
-    assert "Manafa OID-5259-791266: active → closed, paid 2026-09-22, net profit 477.40" in page
+    assert "Period performance" in page and "Year to date" in page
+    for p in ("month", "quarter", "ytd", "12m"):
+        assert client.get(f"/v/{VIEW}/?p={p}").status_code == 200
+    notes = client.get(f"/v/{VIEW}/notes").text
+    assert "Manafa OID-5259-791266: active → closed, paid 2026-09-22, net profit 477.40" in notes
     assert "Excel V2.2: 244,849.99" in page
     assert "BREACH" in page
     assert "Admin" not in re.sub(r"<[^>]+>", " ", page.split("<main")[0])  # no admin link for shareholders
