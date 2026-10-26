@@ -27,7 +27,7 @@
   {% if not pdf %}
   <div class="wrap">
     <nav class="tabs" aria-label="Report sections">
-      {% for slug, path, label in [("overview", "", "Overview"), ("risk", "risk", "Returns & risk"), ("positions", "positions", "Positions"), ("notes", "notes", "Notes & checks")] %}
+      {% for slug, path, label in [("overview", "", "Overview"), ("risk", "risk", "Returns & risk"), ("positions", "positions", "Positions"), ("reports", "reports", "Reports"), ("notes", "notes", "Notes & checks")] %}
       <a class="tab" href="{{ base }}{{ path }}?v={{ snapshot.version }}" {% if active == slug %}aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
       <span class="tab-gap" aria-hidden="true"></span>

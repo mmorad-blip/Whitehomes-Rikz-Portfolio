@@ -119,7 +119,7 @@ def auto_headline(v, cur: dict, prv: dict, label: str, prev_label: str) -> str:
     nav = v("total.nav")
     if nav is None:
         return "Portfolio report"
-    real, old = cur["realised"], prv["realised"]
+    real, old = cur["realised"], prv["realised"] if prv else Decimal(0)
     if real < 1:
         lead = f"No profit realised in {label}"
     elif old >= 1:
@@ -131,12 +131,14 @@ def auto_headline(v, cur: dict, prv: dict, label: str, prev_label: str) -> str:
     return f"{lead}, with NAV at SAR {_k(nav)}"
 
 
-def _period_sentence(cur: dict, prv: dict, label: str, prev_label: str) -> Markup:
-    y, py = cur["yield"], prv["yield"]
-    text = Markup("In {}, <strong>SAR {}</strong> of profit was received and SAR {} earned on an accrual basis "
-                  "(SAR {} and SAR {} in {}).").format(
-        label, f"{cur['realised']:,.2f}", f"{cur['earned']:,.2f}", f"{prv['realised']:,.2f}",
-        f"{prv['earned']:,.2f}", prev_label)
+def _period_sentence(cur: dict, prv: dict | None, label: str, prev_label: str) -> Markup:
+    y, py = cur["yield"], prv["yield"] if prv else None
+    text = Markup("In {}, <strong>SAR {}</strong> of profit was received and SAR {} earned on an accrual basis").format(
+        label, f"{cur['realised']:,.2f}", f"{cur['earned']:,.2f}")
+    if prv:
+        text += Markup(" (SAR {} and SAR {} in {})").format(f"{prv['realised']:,.2f}", f"{prv['earned']:,.2f}",
+                                                             prev_label)
+    text += Markup(".")
     if y is not None:
         text += Markup(" Deployed capital averaged SAR {} and yielded <strong>{:.2f}%</strong> a year{}.").format(
             f"{cur['avg_capital']:,.0f}", y * 100,
@@ -184,7 +186,9 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     as_of = snapshot.as_of
     holdings = doc.get("holdings", [])
     cur_w, prev_w = periods.windows(period, as_of)
-    cur, prv = periods.measure(holdings, as_of, cur_w), periods.measure(holdings, as_of, prev_w)
+    cur = periods.measure(holdings, as_of, cur_w)
+    # Before the first position there is nothing to compare against.
+    prv = periods.measure(holdings, as_of, prev_w) if periods.covered(holdings, prev_w) else None
     series = periods.monthly_series(holdings, as_of)
     start_point = periods.point_at(versions, snapshot.version, cur_w.start)
     start_head = start_point[2] if start_point else {}
@@ -217,8 +221,10 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
                 "spark": charts.sparkline(trend, slot=SPARK_SLOT.get(key, 1), literal=pdf)}
 
     def flow_kpi(key, label, unit, badge=None, sub=None, slot=1):
-        val, old = cur[key], prv[key]
+        val, old = cur[key], prv[key] if prv else None
         delta = _delta_pct(val, old) if unit == "SAR" else _delta(val, old, unit, "up")
+        if prv is None:
+            sub = sub or "No earlier period to compare"
         return {"key": None, "label": label, "value": val, "unit": unit, "badge": badge, "bar": None,
                 "vs": vs_prev, "delta": delta, "sub": sub,
                 "spark": charts.sparkline([m[key] for m in series], slot=slot, literal=pdf)}
@@ -239,10 +245,14 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     ]
 
     def row(label, key, unit):
-        a, b = cur[key], prv[key]
-        return {"label": label, "cur": a, "prev": b, "unit": unit,
-                "delta": (_delta_pct(a, b) if unit == "SAR" else _delta(a, b, unit, "up")) if unit != "n"
-                else _delta_count(a, b)}
+        a, b = cur[key], prv[key] if prv else None
+        if b is None:
+            delta = None
+        elif unit == "n":
+            delta = _delta_count(a, b)
+        else:
+            delta = _delta_pct(a, b) if unit == "SAR" else _delta(a, b, unit, "up")
+        return {"label": label, "cur": a, "prev": b, "unit": unit, "delta": delta}
 
     comparison = {
         "cur": cur_w.label(), "prev": prev_w.label(),
@@ -259,7 +269,9 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     }
     period_ctx = {
         "kind": period, "options": periods.PERIODS, "label": cur_w.label(), "prev_label": prev_w.label(),
-        "partial": cur_w.days != prev_w.days or as_of != periods._month_end(as_of),
+        "partial": prv is not None and cur_w.end == as_of and as_of != periods._month_end(as_of),
+        "no_prior": prv is None,
+        "inception": periods.inception(holdings),
     }
 
     breaches = [r for r in policy if r["status"] == "BREACH"]
@@ -356,3 +368,80 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
                          "avg_deal_yield", "utilisation", "utilisation_excel", "idle", "vs_target", "vs_benchmark"],
         "credit_keys": [k for k in figs if k.startswith("credit.")],
     }
+
+
+def _ended(h: dict):
+    return periods._d(h.get("paid_on")) or periods._d(h["maturity"])
+
+
+def monthly_reports(snapshot, versions: list) -> list[dict]:
+    """One report per calendar month since inception, newest first.
+
+    Flows come from the selected report's positions, so later corrections
+    flow back into earlier months; the month's own report version is kept so
+    readers can open the figures exactly as they were published.
+    """
+    doc = json.loads(snapshot.report)
+    holdings = doc.get("holdings", [])
+    as_of = snapshot.as_of
+    first = periods.inception(holdings)
+    if first is None:
+        return []
+    out = []
+    m = as_of.replace(day=1)
+    while m >= first.replace(day=1):
+        end = periods._month_end(m)
+        complete = end <= as_of
+        if complete:
+            w = periods.Window(m, end)
+            pm = periods.shift(m, -1)
+            pw = periods.Window(pm, periods._month_end(pm))
+        else:
+            w, pw = periods.windows("month", as_of)
+        cur = periods.measure(holdings, as_of, w)
+        prv = periods.measure(holdings, as_of, pw) if periods.covered(holdings, pw) else None
+        published = [(a, ver, head or {}) for ver, a, _, head in versions
+                     if ver <= snapshot.version and a is not None and m <= periods._d(a) <= end]
+        last = max(published, key=lambda x: (x[0], x[1])) if published else None
+        nav = last[2].get("total.nav") if last else None
+
+        def row(label, key, unit, cur=cur, prv=prv):
+            a, b = cur[key], prv[key] if prv else None
+            if b is None:
+                delta = None
+            elif unit == "n":
+                delta = _delta_count(a, b)
+            elif unit == "SAR":
+                delta = _delta_pct(a, b)
+            else:
+                delta = _delta(a, b, unit, "up")
+            return {"label": label, "cur": a, "prev": b, "unit": unit, "delta": delta}
+
+        out.append({
+            "key": f"{m:%Y-%m}",
+            "label": f"{m:%B %Y}",
+            "short": f"{m:%b %Y}",
+            "window": w,
+            "prev_label": pw.label(),
+            "complete": complete,
+            "cur": cur,
+            "prev": prv,
+            "nav": Decimal(str(nav)) if nav is not None else None,
+            "version": last[1] if last else None,
+            "version_as_of": last[0] if last else None,
+            "rows": [
+                row("Profit received", "realised", "SAR"),
+                row("Profit earned (accrual)", "earned", "SAR"),
+                row("Annualised yield on capital", "yield", "ratio"),
+                row("Average capital deployed", "avg_capital", "SAR"),
+                row("New capital placed", "deployed", "SAR"),
+                row("Positions opened", "opened", "n"),
+                row("Positions closed", "closed", "n"),
+            ],
+            "opened": sorted((h for h in holdings if w.start <= periods._d(h["start"]) <= w.end),
+                             key=lambda h: h["start"]),
+            "closed": sorted((h for h in holdings if h["state"] == "closed" and w.start <= _ended(h) <= w.end),
+                             key=_ended),
+        })
+        m = periods.shift(m, -1)
+    return out

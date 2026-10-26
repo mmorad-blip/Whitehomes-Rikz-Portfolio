@@ -225,6 +225,10 @@ input[type=file]{max-width:100%;background:var(--surface-2)}
 .access-ft{padding:12px 22px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)}
 .access-bd .error{background:var(--bad-soft);color:var(--bad);padding:8px 11px;border-radius:var(--r-sm);font-size:13px}
 
+.report-list tr.is-current td{background:var(--surface-2)}
+.report-list tr.is-current td:first-child a{font-weight:700}
+.dl-btn{display:inline-flex;align-items:center;padding:8px 14px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:14px;text-decoration:none}
+.dl-btn:hover{opacity:.9}
 @media print{html,body{background:#fff}.no-print{display:none}.masthead{position:static}}
 {% block extra_css %}{% endblock %}
 </style>

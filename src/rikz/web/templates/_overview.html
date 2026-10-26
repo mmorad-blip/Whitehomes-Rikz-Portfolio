@@ -17,7 +17,7 @@
 <div class="period-bar">
   <div>
     <h2 class="period-title">{{ period.label }}</h2>
-    <p class="muted small">Compared with {{ period.prev_label }}{% if period.partial %} · period to date, so the comparison is part-period{% endif %}</p>
+    <p class="muted small">{% if period.no_prior %}No comparison: {{ period.prev_label }} is before the first position on {{ period.inception.strftime("%d %b %Y") }}{% else %}Compared with {{ period.prev_label }}{% if period.partial %} · period to date, compared with the same days of the earlier period{% endif %}{% endif %}</p>
   </div>
   {% if not pdf %}<nav class="seg" aria-label="Reporting period">
     {% for key, name in period.options %}<a href="?{% if request.query_params.get('v') %}v={{ request.query_params.get('v') }}&amp;{% endif %}p={{ key }}"{% if key == period.kind %} class="on" aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}

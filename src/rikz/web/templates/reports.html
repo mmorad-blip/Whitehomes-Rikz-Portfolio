@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{% if month %}{{ month.label }} report{% else %}Monthly reports{% endif %} – Rikz Portfolio{% endblock %}
+{% block extra_css %}{% if pdf %}
+<style>@page{size:A4;margin:14mm}.wrap{max-width:none;padding:0}.panel{break-inside:avoid}</style>
+{% endif %}{% endblock %}
+{% block body %}
+{% include "_header.html" %}
+<main class="wrap">
+{% if print_hint %}<div class="panel small no-print">To save this report as a PDF, use your browser&apos;s <strong>Print</strong> and choose <strong>Save as PDF</strong>.</div>{% endif %}
+
+{% if not pdf %}
+<div class="panel card table-card">
+  <div class="card-hd"><h2>Monthly reports</h2><span class="unit-note">SAR · one report per calendar month</span></div>
+  <div class="table-wrap"><table class="report-list">
+    <tr><th>Month</th><th>Status</th><th>Profit received</th><th>Profit earned</th><th>Yield</th><th>NAV at month end</th><th>Report</th><th><span class="sr-only">Actions</span></th></tr>
+    {% for r in reports %}
+    <tr {% if month and r.key == month.key %}aria-current="true" class="is-current"{% endif %}>
+      <td><a href="{{ base }}reports?m={{ r.key }}&amp;v={{ snapshot.version }}">{{ r.label }}</a></td>
+      <td>{% if r.complete %}<span class="badge ok">Complete</span>{% else %}<span class="badge warn">Month to date</span>{% endif %}</td>
+      <td>{{ r.cur.realised|sar }}</td>
+      <td>{{ r.cur.earned|sar }}</td>
+      <td>{{ r.cur.yield|pct }}</td>
+      <td>{{ r.nav|sar }}</td>
+      <td>{% if r.version %}<a href="{{ base }}?v={{ r.version }}">v{{ r.version }}</a> <span class="muted small">{{ r.version_as_of.strftime("%d %b") }}</span>{% else %}<span class="muted small">None uploaded</span>{% endif %}</td>
+      <td><a href="{{ base }}reports/{{ r.key }}.pdf?v={{ snapshot.version }}" aria-label="Download {{ r.label }} PDF">PDF</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="muted small card-foot">Flows are measured from the positions in report v{{ snapshot.version }}, so later corrections are reflected in earlier months. NAV is taken from the last report uploaded in that month. Open a report version to see its figures exactly as published.</p>
+</div>
+{% endif %}
+
+{% if month %}
+<section class="hero" aria-labelledby="month-title">
+  <div class="hero-main">
+    <div class="hero-eyebrow">
+      <span class="eyebrow">Monthly report · {{ month.window.label() }}</span>
+      {% if month.complete %}<span class="badge ok">Complete</span>{% else %}<span class="badge warn">Month to date</span>{% endif %}
+    </div>
+    <h1 id="month-title">{{ month.label }}</h1>
+    <p class="hero-lede">SAR {{ month.cur.realised|sar }} of profit received and SAR {{ month.cur.earned|sar }} earned on an accrual basis, {{ month.cur.opened }} position{{ "" if month.cur.opened == 1 else "s" }} opened and {{ month.cur.closed }} closed.</p>
+    {% if not pdf %}<p><a class="dl-btn" href="{{ base }}reports/{{ month.key }}.pdf?v={{ snapshot.version }}">Download PDF</a></p>{% endif %}
+  </div>
+  <dl class="facts">
+    <div class="fact"><dt>Profit received</dt><dd class="fact-val">{{ month.cur.realised|sar }}</dd></div>
+    <div class="fact"><dt>Profit earned</dt><dd class="fact-val">{{ month.cur.earned|sar }}</dd></div>
+    <div class="fact"><dt>Yield, annualised</dt><dd class="fact-val">{{ month.cur.yield|pct }}</dd></div>
+    <div class="fact"><dt>NAV at month end</dt><dd class="fact-val">{{ month.nav|sar }}</dd>{% if month.version %}<dd class="fact-sub">from report v{{ month.version }}</dd>{% endif %}</div>
+  </dl>
+</section>
+
+<div class="panel card table-card">
+  <div class="card-hd"><h2>Performance</h2><span class="unit-note">{% if month.prev %}Compared with {{ month.prev_label }}{% else %}No earlier month to compare{% endif %}</span></div>
+  <div class="table-wrap"><table>
+    <tr><th>Measure</th><th>{{ month.short }}</th><th>{{ month.prev_label }}</th><th>Change</th></tr>
+    {% for r in month.rows %}
+    <tr><td>{{ r.label }}</td><td>{{ r.cur|value(r.unit) }}</td><td>{{ r.prev|value(r.unit) }}</td>
+      <td>{% if r.delta %}<span class="delta {{ r.delta.tone }}">{{ r.delta.text }}</span>{% else %}–{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+{% for title, rows, kind in [("Positions opened", month.opened, "open"), ("Positions closed", month.closed, "close")] %}
+<div class="panel card table-card">
+  <div class="card-hd"><h2>{{ title }} ({{ rows|length }})</h2></div>
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <tr><th>Position</th><th>Channel</th><th>Rating</th><th>Principal</th><th>Start</th><th>Maturity</th>{% if kind == "close" %}<th>Paid</th><th>Realised net</th>{% else %}<th>State</th><th>Expected net</th>{% endif %}</tr>
+    {% for h in rows %}
+    <tr><td class="mono">{{ h.ident }}</td><td>{{ h.channel|title }}</td><td>{{ h.rating or "–" }}</td><td>{{ h.principal|sar }}</td><td>{{ h.start }}</td><td>{{ h.maturity }}</td>
+      {% if kind == "close" %}<td>{{ h.paid_on or h.maturity }}</td><td>{{ h.realised_net|sar }}</td>{% else %}<td>{{ h.state }}</td><td>{{ h.expected_net|sar }}</td>{% endif %}</tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted small card-foot">None in this month.</p>{% endif %}
+</div>
+{% endfor %}
+{% elif not reports %}
+<div class="panel card"><p class="muted">No positions yet, so there are no monthly reports.</p></div>
+{% endif %}
+</main>
+{% endblock %}

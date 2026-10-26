@@ -47,6 +47,8 @@ class Window:
             return s.strftime("%b %Y")
         if whole_months and s.year == e.year and s.month == 1 and e.month == 12:
             return str(s.year)
+        if whole_months and s.year == e.year and s.month % 3 == 1 and e.month == s.month + 2:
+            return f"Q{(s.month - 1) // 3 + 1} {s.year}"
         if whole_months:
             return f"{s:%b %Y} – {e:%b %Y}" if s.year != e.year else f"{s:%b} – {e:%b %Y}"
         if s.year == e.year:
@@ -58,6 +60,12 @@ def windows(kind: str, as_of: date) -> tuple[Window, Window]:
     first = as_of.replace(day=1)
     if kind == "quarter":
         start, step = first.replace(month=(as_of.month - 1) // 3 * 3 + 1), 3
+        if start == first and as_of != _month_end(as_of):
+            # In a quarter's first month, quarter-to-date is just the month;
+            # report the last full quarter against the one before it instead.
+            end = start - timedelta(days=1)
+            start = shift(start, -3)
+            return Window(start, end), Window(shift(start, -3), start - timedelta(days=1))
     elif kind == "ytd":
         start, step = date(as_of.year, 1, 1), 12
     elif kind == "12m":
@@ -79,8 +87,23 @@ def _overlap(a: date, b: date, w: Window) -> int:
     return max(0, (hi - lo).days)
 
 
+def inception(holdings: list[dict]) -> date | None:
+    starts = [_d(h["start"]) for h in holdings if h.get("start")]
+    return min(starts) if starts else None
+
+
+def covered(holdings: list[dict], w: Window) -> bool:
+    """Whether the portfolio existed during the window."""
+    first = inception(holdings)
+    return first is not None and first <= w.end
+
+
 def measure(holdings: list[dict], as_of: date, w: Window) -> dict:
     """Flows and returns of the positions inside one window."""
+    first = inception(holdings)
+    if first and w.start < first <= w.end:
+        # Average capital over the days the portfolio existed, not the empty run-up.
+        w = Window(first, w.end)
     realised = earned = capital_days = deployed = closed_principal = ZERO
     opened = closed = 0
     for h in holdings:
