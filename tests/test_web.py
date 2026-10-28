@@ -123,6 +123,47 @@ def test_report_tabs(client):
     assert client.get(f"/v/{VIEW}/risk?v=9").status_code == 404
 
 
+LIVE_V5_FIELDS = {
+    "ratings": "rating,positions,outstanding,share,realised,cw_yield,defaulted",
+    "troubled": "position,status,rating,principal,recovered,outstanding,maturity,days_past_maturity",
+    "forecast": "channel,yield,cycle_days,cycles,per_cycle,annual,base,profit",
+}
+
+
+def test_reports_saved_before_new_columns_still_render(store, access):
+    """Stored reports keep the row shape they were built with (production v5 lacks net_yield etc.)."""
+    import json
+    from types import SimpleNamespace
+
+    from rikz.store.db import Snapshot
+    from rikz.web import views
+    from rikz.web.app import create_app
+
+    app = create_app(store, access)
+    with store.Session() as s:
+        snap = s.scalars(select(Snapshot).order_by(Snapshot.version.desc())).first()
+        versions = [(x.version, x.as_of, x.coverage, x.headline) for x in s.scalars(select(Snapshot))]
+        doc = json.loads(snap.report)
+        for name, fields in LIVE_V5_FIELDS.items():
+            keep = fields.split(",")
+            doc["tables"][name] = [{k: r[k] for k in keep if k in r} for r in doc["tables"].get(name, [])]
+        for name in ("units", "unit_issues", "rollovers"):
+            doc["tables"].pop(name, None)
+        old = SimpleNamespace(**{c.key: getattr(snap, c.key) for c in Snapshot.__table__.columns})
+        old.report = json.dumps(doc)
+    ctx = views.build(old, versions)
+    request = SimpleNamespace(query_params={}, url=SimpleNamespace(path="/v/x/"))
+
+    def render(page):
+        return app.state.templates.get_template("dashboard.html").render(
+            **ctx, role="shareholder", base="/v/x/", pdf=False, page=page, active=page, request=request,
+            access=access)
+
+    for page in ("overview", "risk", "notes"):
+        assert "</html>" in render(page)
+    assert "3M SAIBOR benchmark" in render("overview")
+
+
 def test_monthly_reports(client):
     r = client.get(f"/v/{VIEW}/reports", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("/login")
