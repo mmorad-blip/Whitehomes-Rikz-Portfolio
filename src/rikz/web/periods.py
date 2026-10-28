@@ -150,12 +150,27 @@ def contributed(monthly: list[dict], w: Window) -> Decimal:
     return total
 
 
-def monthly_series(holdings: list[dict], as_of: date, months: int = 12) -> list[dict]:
+def with_capital(m: dict, monthly: list[dict], w: Window) -> dict:
+    """Split placements into new money and recycled money.
+
+    Short positions roll over: the same principal is placed again each time a
+    contract matures, so summing placements counts one riyal many times.
+    Only contributions from the statements are new capital; the rest of the
+    placements were funded by returned principal and profit.
+    """
+    injected = contributed(monthly, w)
+    m["injected"] = injected
+    m["reinvested"] = max(ZERO, m["deployed"] - injected)
+    return m
+
+
+def monthly_series(holdings: list[dict], as_of: date, months: int = 12, monthly: list[dict] | None = None) -> list[dict]:
     """One measurement per calendar month, oldest first, for sparklines."""
     out = []
     for i in range(months - 1, -1, -1):
         s = shift(as_of.replace(day=1), -i)
-        out.append(measure(holdings, as_of, Window(s, min(_month_end(s), as_of))))
+        w = Window(s, min(_month_end(s), as_of))
+        out.append(with_capital(measure(holdings, as_of, w), monthly or [], w))
     return out
 
 

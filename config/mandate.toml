@@ -6,3 +6,11 @@
 [manafa]
 funded_from = 2026-01-06
 min_principal = "5000.00"
+
+# How a repayment is booked when two positions have identical amounts and
+# dates and the statement cannot tell them apart. Printed on Notes & checks
+# next to every interchangeable pair. Fill in who approved it.
+[settlement]
+rule = "Oldest investment first: the repayment is booked to the position funded earliest"
+approved_by = ""
+# approved_on = 2026-10-28

@@ -12,13 +12,36 @@ provision_delay = "0.00"
 accrue_open_profit = true
 # Window for "due in the next N days".
 upcoming_days = 30
-# Forecast: expected loss per Manafa cycle (0 = guarantees cover defaults).
-forecast_loss_per_cycle = "0.00"
-# PLACEHOLDER: latest 3-month SAIBOR published by SAMA. Update before reporting.
+# Forecast: expected loss per Manafa cycle. "observed" = defaulted principal
+# net of recoveries ÷ principal funded; or a number such as "0.02" to override.
+forecast_loss_per_cycle = "observed"
+# PLACEHOLDER: latest 3-month SAIBOR published by SAMA. Update before reporting,
+# set benchmark_is_placeholder = false and fill in the as-of date and source.
+# The report warns while it is a placeholder or older than 30 days.
 benchmark_saibor = "0.05"
 benchmark_is_placeholder = true
+# benchmark_as_of = 2026-10-26
+benchmark_source = ""
 # Idle-cash flag in the Awaed chain: days from maturity to the next deposit.
 awaed_idle_days = 3
+# Money matured within this many days is excluded from the idle-cash check,
+# and an Awaed deposit sitting longer than this raises an alert.
+idle_grace_days = 2
+# A defaulted position with no recovery is flagged written off after this many
+# days past maturity.
+writeoff_days = 180
+# Awaed principal rounded up to the whole riyal: dips of the derived wallet
+# below zero up to this amount are treated as unrecorded top-ups.
+awaed_rounding_tolerance = "1.00"
+
+# Collection status per defaulted position. expected = share of outstanding
+# principal you expect to recover (0–1); status = in collection | legal |
+# settled | written off.
+[recovery."OID-1432-698593"]
+expected = "0"
+status = "in collection"
+# last_action = 2026-10-01
+last_action_note = ""
 
 [policy]
 budget_whitehomes = "215000"
@@ -41,3 +64,5 @@ max_single_manafa_position = "0.12"   # of Manafa NAV
 max_troubled_exposure = "0.05"        # delayed + defaulted principal before provision, of total NAV
 max_idle_cash = "0.10"                # of total NAV
 min_liquidity = "0.20"                # cash + maturing within 30 days, of total NAV
+# PROVISIONAL: set your own limit. Share of Manafa outstanding in one rating.
+max_single_rating_share = "0.50"

@@ -111,6 +111,71 @@ def _xirr(flows, s: Settings) -> Decimal | None:
         return None
 
 
+def nav_parts(hs: list[Holding], contribs: list[Contribution], d: date, s: Settings,
+              channel: str | None = None) -> dict[str, Decimal]:
+    """NAV on a past date, rebuilt from the ledger and the positions.
+
+    contributed + profit paid by `d` + profit accrued on positions open at `d`
+    − provision on positions past maturity and now defaulted or delayed. Cash
+    in the wallet is the difference between what came in and what is placed,
+    so it needs no separate term. Fees are paid from the bank, not the wallet."""
+    hs = [h for h in hs if channel is None or h.channel == channel]
+    contributed = sum((x.amount for x in contribs if x.date <= d and (channel is None or x.channel == channel)), ZERO)
+    realised = accrued = provision = ZERO
+    for h in hs:
+        if h.start > d:
+            continue
+        if h.paid_on is not None and h.paid_on <= d:
+            realised += h.realised_net
+            continue
+        if h.channel == "awaed" and h.maturity <= d:
+            realised += h.realised_net
+            continue
+        if h.state is State.DEFAULTED and h.maturity < d:
+            provision -= h.outstanding * s.provision_default
+        elif h.state is State.DELAYED and h.maturity < d:
+            provision -= h.outstanding * s.provision_delay
+            if s.accrue_open_profit:
+                accrued += max(ZERO, h.expected_net - h.realised_net) * (1 - s.provision_delay)
+        elif s.accrue_open_profit and h.state is not State.DEFAULTED:
+            elapsed = max(0, (d - h.start).days)
+            accrued += h.expected_net * min(Decimal(1), Decimal(elapsed) / Decimal(h.contract_days))
+    return {"contributed": contributed, "realised": realised, "accrued": accrued, "provision": provision,
+            "nav": contributed + realised + accrued + provision}
+
+
+def _units(r: Report, hs: list[Holding], contribs: list[Contribution], s: Settings, as_of: date) -> None:
+    """Unitise the portfolio: each contribution buys units at the NAV per unit
+    of the day before it arrived, so later money does not share in earlier
+    gains or losses. Value per owner = units × today's NAV per unit."""
+    units: dict[str, Decimal] = defaultdict(lambda: ZERO)
+    total_units = ZERO
+    issues = []
+    for d in sorted({x.date for x in contribs}):
+        price = Decimal(1) if total_units == 0 else nav_parts(hs, contribs, d - timedelta(1), s)["nav"] / total_units
+        for x in (x for x in contribs if x.date == d):
+            u = x.amount / price
+            units[x.owner] += u
+            total_units += u
+            issues.append({"date": d, "owner": x.owner, "amount": x.amount, "price": price, "units": u})
+    nav = r.channels["total"].nav
+    price_now = _ratio(nav, total_units) or ZERO
+    rows = []
+    for owner in sorted(units):
+        mine = [x for x in contribs if x.owner == owner]
+        value = units[owner] * price_now
+        paid = sum((x.amount for x in mine), ZERO)
+        fees = sum((x.bank_fee for x in mine), ZERO)
+        flows = [(x.date, -(x.amount + x.bank_fee)) for x in mine] + [(as_of, value)]
+        rows.append({"owner": owner, "contributed": paid, "fees": fees, "units": units[owner],
+                     "share": _ratio(units[owner], total_units), "value": value, "gain": value - paid - fees,
+                     "xirr": _xirr(flows, s)})
+    r.tables["units"] = rows
+    r.tables["unit_issues"] = issues
+    r.add("units.nav_per_unit", "NAV per unit", price_now, "x", ("total.nav",),
+          "Units issued at 1.00 on the first contribution, then at the NAV per unit of the day before")
+
+
 def compute(
     *,
     as_of: date,
@@ -126,6 +191,15 @@ def compute(
     by = {c: [h for h in holdings if h.channel == c] for c in CHANNELS}
 
     ch: dict[str, ChannelNumbers] = {}
+    rounding_topup = ZERO
+    # Provision released if the expected recovery on each defaulted position comes in.
+    expected_back = {c: sum((h.outstanding * s.provision_default * s.recovery_for(h.ident).expected
+                             for h in by[c] if h.state is State.DEFAULTED), ZERO) for c in CHANNELS}
+    expected_back["total"] = expected_back["awaed"] + expected_back["manafa"]
+    weights = {c: sum((x.amount for x in contribs if x.channel == c), ZERO) for c in CHANNELS}
+    target_for = {c: s.expected_return[c][0] for c in CHANNELS}
+    target_for["total"] = (_ratio(sum((weights[c] * target_for[c] for c in CHANNELS), ZERO), sum(weights.values(), ZERO))
+                           or s.target_low)
     for c in CHANNELS:
         n = ChannelNumbers()
         n.contributed = sum((x.amount for x in contribs if x.channel == c), ZERO)
@@ -143,6 +217,9 @@ def compute(
             n.recovered += h.principal_recovered
             n.accrued += _accrued(h, s, as_of)
         n.wallet = wallets.get(c, ZERO)
+        if c == "awaed" and -s.awaed_rounding_tolerance <= n.wallet < 0:
+            rounding_topup = -n.wallet
+            n.wallet = ZERO
         n.wallet_estimate = n.contributed + n.realised - n.active - n.delayed - n.defaulted
         ch[c] = n
     total = ch["awaed"] + ch["manafa"]
@@ -189,7 +266,11 @@ def compute(
         r.add(f"{c}.nav_recovery", "NAV – recovery view (0% loss on defaults)", n.nav_recovery, "SAR",
               (f"{c}.nav", f"{c}.provision"))
         r.add(f"{c}.xirr_recovery", "XIRR – recovery view", _xirr(flows + [(as_of, n.nav_recovery)], s), "ratio",
-              lrefs[c] + (f"{c}.nav_recovery",))
+              lrefs[c] + (f"{c}.nav_recovery",), "Upside only: assumes every defaulted riyal comes back")
+        r.add(f"{c}.nav_expected", "NAV – expected recovery", n.nav + expected_back[c], "SAR",
+              (f"{c}.nav", f"{c}.provision"), "Provision released by the expected recovery entered per position")
+        r.add(f"{c}.xirr_expected", "XIRR – expected recovery", _xirr(flows + [(as_of, n.nav + expected_back[c])], s),
+              "ratio", lrefs[c] + (f"{c}.nav_expected",))
 
         cd_tenor = sum((h.principal * (h.contract_days if h.channel == "awaed" else (h.paid_on - h.start).days)
                         for h in closed), ZERO)
@@ -214,11 +295,13 @@ def compute(
                   "Excel treats all capital as present from the first contribution")
         r.add(f"{c}.idle", "Idle cash as % of NAV", _ratio(n.wallet, n.nav), "ratio", (f"{c}.wallet", f"{c}.nav"))
         x = r.value(f"{c}.xirr")
-        r.add(f"{c}.vs_target", "Excess return vs target (low end)", None if x is None else x - s.target_low, "ratio",
-              (f"{c}.xirr",))
+        r.add(f"{c}.target", "Target return (low end)", target_for[c], "ratio",
+              ("config/mandate.toml", "awaed.contributed", "manafa.contributed") if c == "total" else ("config/mandate.toml",),
+              "Capital-weighted blend of the channel targets" if c == "total" else "Low end of the channel's expected range")
+        r.add(f"{c}.vs_target", "Excess return vs target (low end)", None if x is None else x - target_for[c], "ratio",
+              (f"{c}.xirr", f"{c}.target"))
         r.add(f"{c}.vs_benchmark", "Excess return vs benchmark (3M SAIBOR)",
-              None if x is None else x - s.benchmark_saibor, "ratio", (f"{c}.xirr",),
-              "Benchmark is a placeholder until updated in settings" if s.benchmark_is_placeholder else "")
+              None if x is None else x - s.benchmark_saibor, "ratio", (f"{c}.xirr",), s.benchmark_warning(as_of))
 
     # Total utilisation, Excel method (each channel from its first contribution)
     num = sum((h.principal * _capital_days_held(h, as_of) for h in holdings), ZERO)
@@ -230,15 +313,20 @@ def compute(
     r.add("total.utilisation_excel", "Capital utilisation – Excel method", _ratio(num, den), "ratio",
           ("total.contributed",), "Excel treats all capital as present from the first contribution")
 
+    if rounding_topup:
+        r.notes.append(f"Awaed derived wallet was {rounding_topup:,.2f} SAR below zero: Awaed rounds rolled-over "
+                       f"principal up to the whole riyal, so this is treated as a rounding top-up and the wallet shown as 0.00")
     _credit(r, by["manafa"], s, as_of)
     _ratings(r, holdings, s)
     _allocation(r, s, contribs)
-    _income(r, holdings, as_of, s)
+    _income(r, holdings, contribs, as_of, s)
     _ladder(r, holdings, as_of, s)
     _sensitivity(r, s)
     _forecast(r, holdings, s)
     _policy(r, s)
-    _monthly(r, holdings, contribs, as_of)
+    _monthly(r, holdings, contribs, as_of, s)
+    _units(r, holdings, contribs, s, as_of)
+    _evidence(r, contribs, s, as_of)
 
     for c in CHANNELS:
         n = ch[c]
@@ -290,31 +378,58 @@ def _credit(r: Report, hs: list[Holding], s: Settings, as_of: date) -> None:
     be = None if m.defaulted == 0 else max(ZERO, 1 - (m.net_gain + m.defaulted * s.provision_default) / m.defaulted)
     r.add("credit.break_even", "Break-even recovery on defaults", be, "ratio", ("manafa.net_gain", "manafa.defaulted"))
     overdue = [h for h in hs if h.state is not State.CLOSED and h.maturity < as_of]
-    r.tables["troubled"] = [
-        {"position": h.ident, "status": h.state.value, "rating": h.rating, "principal": h.principal,
-         "recovered": h.principal_recovered, "outstanding": h.outstanding, "maturity": h.maturity,
-         "days_past_maturity": (as_of - h.maturity).days}
-        for h in overdue
-    ]
+    rows = []
+    for h in overdue:
+        rec = s.recovery_for(h.ident)
+        late = (as_of - h.maturity).days
+        written_off = rec.status == "written off" or (
+            h.state is State.DEFAULTED and late > s.writeoff_days and h.principal_recovered == 0)
+        rows.append({"position": h.ident, "status": h.state.value, "rating": h.rating, "principal": h.principal,
+                     "recovered": h.principal_recovered, "outstanding": h.outstanding, "maturity": h.maturity,
+                     "days_past_maturity": late, "collection": rec.status, "expected_recovery": rec.expected,
+                     "last_action": rec.last_action, "last_action_note": rec.last_action_note,
+                     "written_off": written_off})
+        if written_off and rec.status != "written off":
+            r.notes.append(f"{h.ident} is {late} days past maturity with nothing recovered: past the "
+                           f"{s.writeoff_days}-day write-off point. Mark it written off or record the collection action")
+        if h.state is State.DEFAULTED and rec.last_action is None:
+            r.notes.append(f"{h.ident}: no collection action recorded. Add the last action and its date in settings")
+    r.tables["troubled"] = rows
+    funded = sum((h.principal for h in hs), ZERO)
+    lost = sum((h.outstanding * (1 - s.recovery_for(h.ident).expected) for h in hs if h.state is State.DEFAULTED), ZERO)
+    r.add("credit.observed_loss", "Observed loss rate (defaulted principal net of expected recovery ÷ funded)",
+          _ratio(lost, funded), "ratio", [h.ident for h in hs if h.state is State.DEFAULTED],
+          "Used as the loss per Manafa cycle in the forecast unless overridden in settings")
 
 
 def _ratings(r: Report, hs: list[Holding], s: Settings) -> None:
     Y = Decimal(s.days_per_year)
     groups: dict[str, list[Holding]] = defaultdict(list)
     for h in hs:
-        groups[h.rating if h.channel == "manafa" else "Awaed (not rated)"].append(h)
-    outstanding_all = sum((h.outstanding for h in hs), ZERO)
+        if h.channel == "manafa":  # Awaed deposits are not rated
+            groups[h.rating].append(h)
+    outstanding_all = sum((h.outstanding for g in groups.values() for h in g), ZERO)
     rows = []
-    for k in sorted(groups, key=lambda k: (k.startswith("Awaed"), k)):
+    for k in sorted(groups):
         g = groups[k]
         closed = [h for h in g if h.state is State.CLOSED]
         out = sum((h.outstanding for h in g), ZERO)
-        cd = sum((h.principal * (h.contract_days if h.channel == "awaed" else (h.paid_on - h.start).days) for h in closed), ZERO)
+        cd = sum((h.principal * (h.paid_on - h.start).days for h in closed), ZERO)
+        realised = sum((h.realised_net for h in closed), ZERO)
+        defaulted_principal = sum((h.outstanding for h in g if h.state is State.DEFAULTED), ZERO)
+        provision = -sum((h.outstanding * (s.provision_default if h.state is State.DEFAULTED else s.provision_delay)
+                          for h in g if h.state in (State.DEFAULTED, State.DELAYED)), ZERO)
+        net = realised + provision
+        late = [(h.paid_on - h.maturity).days for h in closed]
+        paid_late = [d for d in late if d > 0]
         rows.append({
             "rating": k, "positions": len(g), "outstanding": out, "share": _ratio(out, outstanding_all),
-            "realised": sum((h.realised_net for h in closed), ZERO),
-            "cw_yield": _ratio(sum((h.realised_net for h in closed), ZERO) * Y, cd),
+            "realised": realised, "cw_yield": _ratio(realised * Y, cd),
             "defaulted": sum(1 for h in g if h.state is State.DEFAULTED),
+            "defaulted_principal": defaulted_principal, "provision": provision, "net_after_loss": net,
+            "net_yield": _ratio(net * Y, cd),
+            "on_time_share": _ratio(Decimal(sum(1 for d in late if d <= 0)), Decimal(len(late))),
+            "avg_days_late": Decimal(sum(paid_late)) / len(paid_late) if paid_late else ZERO,
         })
     r.tables["ratings"] = rows
 
@@ -322,8 +437,14 @@ def _ratings(r: Report, hs: list[Holding], s: Settings) -> None:
 def _allocation(r: Report, s: Settings, contribs: list[Contribution]) -> None:
     nav = r.channels["total"].nav
     rows = []
-    for c, label in (("awaed", "Time deposit – Awaed"), ("manafa", "Sukuk – Manafa"), ("tier3", "Higher yield / equities")):
-        actual = r.channels[c].nav if c in r.channels else ZERO
+    ch = r.channels
+    # Invested principal per sleeve; wallet cash of both platforms is its own sleeve,
+    # so the sleeves add up to total NAV.
+    invested = {c: ch[c].nav - ch[c].wallet for c in CHANNELS}
+    invested["cash"] = ch["total"].wallet
+    for c, label in (("awaed", "Time deposits – Awaed"), ("manafa", "Crowdfunded financing – Manafa"),
+                     ("cash", "Cash (platform wallets)"), ("tier3", "Higher yield / equities")):
+        actual = invested.get(c, ZERO)
         target = s.allocation.get(c, ZERO)
         rows.append({"sleeve": label, "target_share": target, "target_sar": target * nav, "actual_sar": actual,
                      "actual_share": _ratio(actual, nav), "rebalance": target * nav - actual})
@@ -337,19 +458,32 @@ def _allocation(r: Report, s: Settings, contribs: list[Contribution]) -> None:
     r.tables["capital_by_owner"] = owners
 
 
-def _income(r: Report, hs: list[Holding], as_of: date, s: Settings) -> None:
-    nav = r.channels["total"].nav
+MIN_ANNUALISE_DAYS = 30
+
+
+def _income(r: Report, hs: list[Holding], contribs: list[Contribution], as_of: date, s: Settings) -> None:
+    """Income earned in each window on an accrual basis: profit paid in the
+    window plus the change in accrued profit, so a window is not inflated by a
+    deal that happened to pay inside it. Annualised over the days the
+    portfolio actually existed in the window, on its average NAV."""
+    first = min((x.date for x in contribs), default=as_of)
     rows = []
-    ytd_days = (as_of - date(as_of.year, 1, 1)).days + 1
-    for label, days, start in (("Last 7 days", 7, as_of - timedelta(7)), ("Last 30 days", 30, as_of - timedelta(30)),
-                               ("Last 90 days", 90, as_of - timedelta(90)),
-                               ("Year to date", ytd_days, date(as_of.year, 1, 1) - timedelta(1)),
-                               ("Last 365 days", 365, as_of - timedelta(365))):
-        got = {c: sum((h.realised_net for h in hs if h.channel == c and h.paid_on and start < h.paid_on <= as_of), ZERO)
-               for c in CHANNELS}
+    for label, start in (("Last 7 days", as_of - timedelta(7)), ("Last 30 days", as_of - timedelta(30)),
+                         ("Last 90 days", as_of - timedelta(90)),
+                         ("Year to date", date(as_of.year, 1, 1) - timedelta(1)),
+                         ("Last 365 days", as_of - timedelta(365))):
+        start = max(start, first - timedelta(1))
+        days = (as_of - start).days
+        got = {}
+        for c in CHANNELS:
+            a, b = nav_parts(hs, contribs, start, s, c), nav_parts(hs, contribs, as_of, s, c)
+            got[c] = b["realised"] - a["realised"] + b["accrued"] - a["accrued"]
         tot = got["awaed"] + got["manafa"]
-        rows.append({"period": label, "awaed": got["awaed"], "manafa": got["manafa"], "total": tot,
-                     "annualised_on_nav": _ratio(tot * s.days_per_year, nav * days)})
+        avg_nav = (nav_parts(hs, contribs, start, s)["nav"] + r.channels["total"].nav) / 2
+        ok = days >= MIN_ANNUALISE_DAYS
+        rows.append({"period": label, "days": days, "awaed": got["awaed"], "manafa": got["manafa"], "total": tot,
+                     "annualised_on_nav": _ratio(tot * s.days_per_year, avg_nav * days) if ok else None,
+                     "note": "" if ok else f"Not annualised: under {MIN_ANNUALISE_DAYS} days"})
     r.tables["income_by_period"] = rows
 
 
@@ -397,6 +531,15 @@ def _sensitivity(r: Report, s: Settings) -> None:
 
 def _forecast(r: Report, hs: list[Holding], s: Settings) -> None:
     Y = Decimal(s.days_per_year)
+    loss = s.forecast_loss_per_cycle
+    loss_basis = "set in settings"
+    if loss is None:
+        loss = r.value("credit.observed_loss") or ZERO
+        loss_basis = "observed"
+    r.add("forecast.loss_per_cycle", "Credit loss per Manafa cycle used in the forecast", loss, "ratio",
+          ("credit.observed_loss",), f"{loss_basis.title()}: defaulted principal net of expected recovery ÷ funded"
+          if loss_basis == "observed" else "Override set in settings")
+    compound = lambda per, n: Decimal(repr((1 + float(per)) ** float(n) - 1)) if per > -1 else Decimal(-1)  # noqa: E731
     out = {}
     for c in CHANNELS:
         closed = [h for h in hs if h.channel == c and h.state is State.CLOSED]
@@ -407,23 +550,34 @@ def _forecast(r: Report, hs: list[Holding], s: Settings) -> None:
         days = [Decimal(h.contract_days if c == "awaed" else (h.paid_on - h.start).days) for h in closed]
         cycle = sum(days, ZERO) / len(days)
         cycles = Y / cycle
-        per = y * cycle / Y - (s.forecast_loss_per_cycle if c == "manafa" else ZERO)
-        annual = Decimal(repr((1 + float(per)) ** float(cycles) - 1))
+        gross_per = y * cycle / Y
+        per = gross_per - (loss if c == "manafa" else ZERO)
+        gross_annual, annual = compound(gross_per, cycles), compound(per, cycles)
         base = r.channels[c].contributed
-        out[c] = {"yield": y, "cycle_days": cycle, "cycles": cycles, "per_cycle": per, "annual": annual,
-                  "base": base, "profit": base * annual}
-        r.add(f"forecast.{c}", f"Forecast annual return – {c.title()}", annual, "ratio", (f"{c}.cw_yield",),
-              "Historical capital-weighted yield compounded over a year of cycles, fully reinvested")
+        out[c] = {"yield": y, "cycle_days": cycle, "cycles": cycles, "gross_per_cycle": gross_per,
+                  "loss_per_cycle": loss if c == "manafa" else ZERO, "per_cycle": per, "gross_annual": gross_annual,
+                  "expected_loss": gross_annual - annual, "annual": annual, "base": base, "profit": base * annual}
+        r.add(f"forecast.{c}", f"Forecast annual return – {c.title()} (net of expected loss)", annual, "ratio",
+              (f"{c}.cw_yield", "forecast.loss_per_cycle"),
+              "Closed-deal yield compounded over a year of cycles, fully reinvested, less expected credit loss")
+        r.add(f"forecast.{c}_gross", f"Forecast annual return – {c.title()} (before losses)", gross_annual, "ratio",
+              (f"{c}.cw_yield",))
     if out["awaed"] and out["manafa"]:
         profit = out["awaed"]["profit"] + out["manafa"]["profit"]
         base = out["awaed"]["base"] + out["manafa"]["base"]
-        blended = _ratio(profit, base)
-        r.add("forecast.total", "Forecast annual return – blended", blended, "ratio", ("forecast.awaed", "forecast.manafa"),
-              f"Assumes full deployment and {s.forecast_loss_per_cycle:.0%} credit loss per Manafa cycle")
+        r.add("forecast.total", "Forecast annual return – blended (net of expected loss)", _ratio(profit, base), "ratio",
+              ("forecast.awaed", "forecast.manafa"),
+              f"Assumes full deployment and {loss:.2%} credit loss per Manafa cycle ({loss_basis})")
         a, m = out["awaed"]["annual"], out["manafa"]["annual"]
-        need = None if m == a else min(Decimal(1), max(ZERO, (s.target_low - a) / (m - a)))
+        target = s.target_low
+        if a >= target:
+            need, note = ZERO, "Awaed alone reaches the target"
+        elif m <= a or (target - a) / (m - a) > 1:
+            need, note = None, "Not reachable at the current loss rate: more Manafa lowers the blended return"
+        else:
+            need, note = (target - a) / (m - a), ""
         r.add("forecast.manafa_share_needed", "Manafa share needed to reach the target (low end)", need, "ratio",
-              ("forecast.awaed", "forecast.manafa"), "100% means the target is out of reach at current yields")
+              ("forecast.awaed", "forecast.manafa"), note)
     r.tables["forecast"] = [dict(channel=c, **v) for c, v in out.items() if v]
 
 
@@ -449,14 +603,35 @@ def _policy(r: Report, s: Settings) -> None:
                 for h in r.holdings if h.channel == "manafa" and h.state is not State.CLOSED]
     single = _ratio(max(carrying, default=ZERO), m.nav)
     liq = sum((row["total"] for row in r.tables["liquidity"][:3]), ZERO)
-    limits = (
+    # Awaed money that matured within the grace period is in transit to the next
+    # deposit, not idle.
+    in_transit = min(r.channels["awaed"].wallet, sum(
+        (h.principal + h.realised_net for h in r.holdings
+         if h.channel == "awaed" and h.maturity <= r.as_of and (r.as_of - h.maturity).days <= s.idle_grace_days), ZERO))
+    in_transit = max(ZERO, in_transit)
+    idle = _ratio(t.wallet - in_transit, t.nav)
+    r.add("total.in_transit", f"Awaed cash matured in the last {s.idle_grace_days} days", in_transit, "SAR",
+          ("awaed.wallet",), "Excluded from the idle-cash check while it waits to be redeployed")
+    r.add("manafa.idle_policy", "Manafa wallet cash (% of Manafa NAV)", _ratio(m.wallet, m.nav), "ratio",
+          ("manafa.wallet", "manafa.nav"))
+    top_rating = max(r.tables["ratings"], key=lambda row: row["share"] or ZERO, default=None)
+    limits = [
         ("Max single Manafa position (% of Manafa NAV)", single, "max_single_manafa_position", "max", ("manafa.nav",)),
         ("Max troubled exposure (% of total NAV, before provision)", r.value("credit.troubled_total_nav"),
          "max_troubled_exposure", "max", ("credit.troubled_total_nav",)),
-        ("Max idle cash (% of total NAV)", r.value("total.idle"), "max_idle_cash", "max", ("total.idle",)),
+        (f"Max idle cash (% of total NAV, excl. money matured ≤{s.idle_grace_days} days)", idle, "max_idle_cash", "max",
+         ("total.wallet", "total.in_transit", "total.nav")),
         ("Min liquidity: cash + maturing ≤30 days (% of NAV)", _ratio(liq, t.nav), "min_liquidity", "min",
          ("total.wallet", "liquidity.due_30", "total.nav")),
-    )
+    ]
+    if top_rating and "max_single_rating_share" in s.limits:
+        limits.append((f"Max share of Manafa outstanding in one rating (largest: {top_rating['rating']})",
+                       top_rating["share"], "max_single_rating_share", "max", ("manafa.outstanding",)))
+    cap = s.limits["max_single_manafa_position"] * m.nav
+    r.add("policy.max_new_manafa_position", "Largest new Manafa position allowed", cap, "SAR", ("manafa.nav",),
+          f"{s.limits['max_single_manafa_position']:.0%} of Manafa NAV; check before funding")
+    rows.append({"check": "Pre-trade: largest new Manafa position allowed (SAR)", "actual": cap,
+                 "limit": f"{s.limits['max_single_manafa_position']:.0%} of Manafa NAV", "status": "info", "unit": "SAR"})
     for label, actual, key, kind, basis in limits:
         lim = s.limits[key]
         ok = actual is not None and (actual <= lim if kind == "max" else actual >= lim)
@@ -464,13 +639,47 @@ def _policy(r: Report, s: Settings) -> None:
                      "status": "Within limit" if ok else "BREACH"})
         r.add(f"policy.{key}", label, actual, "ratio", basis, note=f"limit {'≤' if kind == 'max' else '≥'} {lim:.0%}")
     x = r.value("total.xirr")
-    verdict = "n/a" if x is None else ("On target" if x >= s.target_low else
+    verdict = "n/a" if x is None else ("On target" if x >= r.value("total.target") else
                                        "Below target, above benchmark" if x >= s.benchmark_saibor else "Below benchmark")
     r.tables["policy"] = rows
     r.notes.append(f"Verdict on the headline XIRR: {verdict}")
 
 
-def _monthly(r: Report, hs: list[Holding], contribs: list[Contribution], as_of: date) -> None:
+def _evidence(r: Report, contribs: list[Contribution], s: Settings, as_of: date) -> None:
+    missing = [x for x in contribs if not x.evidenced]
+    if missing:
+        r.notes.append(f"{len(missing)} of {len(contribs)} capital-ledger contributions have no bank reference or "
+                       f"source document yet; add bank_ref and evidence in config/capital_ledger.toml")
+    r.tables["ledger"] = [{"date": x.date, "channel": x.channel, "owner": x.owner, "amount": x.amount,
+                           "bank_fee": x.bank_fee, "bank_ref": x.bank_ref, "evidence": x.evidence,
+                           "evidenced": x.evidenced} for x in contribs]
+    w = s.benchmark_warning(as_of)
+    if w:
+        r.notes.append(w)
+
+
+def _month_end_navs(r: Report, hs: list[Holding], contribs: list[Contribution], as_of: date, s: Settings) -> None:
+    """NAV on the last calendar day of each month (as-of for the current month)."""
+    for row in r.tables["monthly"]:
+        m = row["month"]
+        end = (m.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(1)
+        if end >= as_of:
+            row["month_end"], row["nav_end"], row["month_to_date"] = as_of, r.channels["total"].nav, True
+        else:
+            row["month_end"], row["nav_end"], row["month_to_date"] = end, nav_parts(hs, contribs, end, s)["nav"], False
+    rebuilt = nav_parts(hs, contribs, as_of, s)["nav"]
+    diff = r.channels["total"].nav - rebuilt
+    # Month-end NAVs before the as-of date use the rebuilt figure, so it must tie out today.
+    r.checks.append(f"Ledger-rebuilt NAV on {as_of:%d %b %Y}: {rebuilt:,.2f} vs reported {r.channels['total'].nav:,.2f}: "
+                    + ("agree" if abs(diff) < Decimal("1") else f"differ by {diff:,.2f}"))
+
+
+def _monthly(r: Report, hs: list[Holding], contribs: list[Contribution], as_of: date, s: Settings) -> None:
+    _monthly_rows(r, hs, contribs, as_of)
+    _month_end_navs(r, hs, contribs, as_of, s)
+
+
+def _monthly_rows(r: Report, hs: list[Holding], contribs: list[Contribution], as_of: date) -> None:
     first = min([x.date for x in contribs] + [h.start for h in hs], default=as_of).replace(day=1)
     months = []
     m = first
