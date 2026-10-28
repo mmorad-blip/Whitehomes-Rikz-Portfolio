@@ -15,9 +15,12 @@ upcoming_days = 30
 # Forecast: expected loss per Manafa cycle. "observed" = defaulted principal
 # net of recoveries ÷ principal funded; or a number such as "0.02" to override.
 forecast_loss_per_cycle = "observed"
-# PLACEHOLDER: latest 3-month SAIBOR published by SAMA. Update before reporting,
-# set benchmark_is_placeholder = false and fill in the as-of date and source.
-# The report warns while it is a placeholder or older than 30 days.
+# PLACEHOLDER: latest 3-month SAIBOR. Official sources: the daily fixing from
+# the SAIBOR administrator (published 12:00 KSA, Sun–Thu, via LSEG), or the
+# monthly average in SAMA's Monthly Statistical Bulletin (sama.gov.sa). Enter
+# it as a decimal (5.48% = "0.0548"), set benchmark_is_placeholder = false and
+# fill in the as-of date and source. The report warns while it is a
+# placeholder or older than 30 days.
 benchmark_saibor = "0.05"
 benchmark_is_placeholder = true
 # benchmark_as_of = 2026-10-26
@@ -26,10 +29,11 @@ benchmark_source = ""
 awaed_idle_days = 3
 # Money matured within this many days is excluded from the idle-cash check,
 # and an Awaed deposit sitting longer than this raises an alert.
-idle_grace_days = 2
+idle_grace_days = 20
 # A defaulted position with no recovery is flagged written off after this many
-# days past maturity.
-writeoff_days = 180
+# days past maturity. 0 = no automatic write-off: defaulted notes stay held
+# until legal collection concludes and you set status = "written off" yourself.
+writeoff_days = 0
 # Awaed principal rounded up to the whole riyal: dips of the derived wallet
 # below zero up to this amount are treated as unrecorded top-ups.
 awaed_rounding_tolerance = "1.00"
@@ -64,5 +68,5 @@ max_single_manafa_position = "0.12"   # of Manafa NAV
 max_troubled_exposure = "0.05"        # delayed + defaulted principal before provision, of total NAV
 max_idle_cash = "0.10"                # of total NAV
 min_liquidity = "0.20"                # cash + maturing within 30 days, of total NAV
-# PROVISIONAL: set your own limit. Share of Manafa outstanding in one rating.
-max_single_rating_share = "0.50"
+# Share of Manafa outstanding in one rating.
+max_single_rating_share = "0.15"

@@ -382,8 +382,11 @@ def _credit(r: Report, hs: list[Holding], s: Settings, as_of: date) -> None:
     for h in overdue:
         rec = s.recovery_for(h.ident)
         late = (as_of - h.maturity).days
+        # writeoff_days = 0 disables the automatic write-off: only a manual
+        # "written off" status writes a position off.
         written_off = rec.status == "written off" or (
-            h.state is State.DEFAULTED and late > s.writeoff_days and h.principal_recovered == 0)
+            s.writeoff_days > 0 and h.state is State.DEFAULTED and late > s.writeoff_days
+            and h.principal_recovered == 0)
         rows.append({"position": h.ident, "status": h.state.value, "rating": h.rating, "principal": h.principal,
                      "recovered": h.principal_recovered, "outstanding": h.outstanding, "maturity": h.maturity,
                      "days_past_maturity": late, "collection": rec.status, "expected_recovery": rec.expected,
