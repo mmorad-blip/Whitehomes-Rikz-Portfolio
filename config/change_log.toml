@@ -3,6 +3,33 @@
 
 [[change]]
 date = 2026-10-28
+who = "Owner"
+file = "settings.toml"
+setting = "policy.limits.max_single_rating_share"
+old = "0.50"
+new = "0.15"
+reason = "Owner set the single-rating concentration limit"
+
+[[change]]
+date = 2026-10-28
+who = "Owner"
+file = "settings.toml"
+setting = "writeoff_days"
+old = "180"
+new = "0 (no automatic write-off)"
+reason = "Defaulted notes stay held until legal collection concludes"
+
+[[change]]
+date = 2026-10-28
+who = "Owner"
+file = "settings.toml"
+setting = "idle_grace_days"
+old = "2"
+new = "20"
+reason = "Owner set the idle-cash grace period"
+
+[[change]]
+date = 2026-10-28
 who = "v0 (system adjustments review)"
 file = "settings.toml"
 setting = "forecast_loss_per_cycle"
