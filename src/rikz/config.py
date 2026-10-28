@@ -77,6 +77,7 @@ class Settings:
     benchmark_source: str = ""
     writeoff_days: int = 180
     idle_grace_days: int = 2
+    rollover_alert_days: int = 2
     awaed_rounding_tolerance: Decimal = Decimal("1.00")
     recovery: dict[str, Recovery] | None = None
 
@@ -172,6 +173,7 @@ def load_settings(path: Path | None = None) -> Settings:
         benchmark_source=c.get("benchmark_source", ""),
         writeoff_days=int(c.get("writeoff_days", 180)),
         idle_grace_days=int(c.get("idle_grace_days", 2)),
+        rollover_alert_days=int(c.get("rollover_alert_days", 2)),
         awaed_rounding_tolerance=Decimal(c.get("awaed_rounding_tolerance", "1.00")),
         recovery={k: Recovery(Decimal(v.get("expected", "0")), v.get("status", "in collection"),
                               v.get("last_action"), v.get("last_action_note", ""))

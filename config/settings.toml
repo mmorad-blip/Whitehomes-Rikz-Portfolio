@@ -27,9 +27,11 @@ benchmark_is_placeholder = true
 benchmark_source = ""
 # Idle-cash flag in the Awaed chain: days from maturity to the next deposit.
 awaed_idle_days = 3
-# Money matured within this many days is excluded from the idle-cash check,
-# and an Awaed deposit sitting longer than this raises an alert.
+# Money matured within this many days is excluded from the idle-cash check.
 idle_grace_days = 20
+# Matured Awaed money still waiting for a new deposit after this many days
+# raises an alert on the Overview (separate from the idle-cash grace above).
+rollover_alert_days = 2
 # A defaulted position with no recovery is flagged written off after this many
 # days past maturity. 0 = no automatic write-off: defaulted notes stay held
 # until legal collection concludes and you set status = "written off" yourself.

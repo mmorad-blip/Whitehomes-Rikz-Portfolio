@@ -324,6 +324,7 @@ def compute(
     _sensitivity(r, s)
     _forecast(r, holdings, s)
     _policy(r, s)
+    _rollovers(r, holdings, as_of, s)
     _monthly(r, holdings, contribs, as_of, s)
     _units(r, holdings, contribs, s, as_of)
     _evidence(r, contribs, s, as_of)
@@ -646,6 +647,38 @@ def _policy(r: Report, s: Settings) -> None:
                                        "Below target, above benchmark" if x >= s.benchmark_saibor else "Below benchmark")
     r.tables["policy"] = rows
     r.notes.append(f"Verdict on the headline XIRR: {verdict}")
+
+
+def _rollovers(r: Report, hs: list[Holding], as_of: date, s: Settings) -> None:
+    """Days each matured Awaed deposit waited before the next deposit, and the profit that cost."""
+    Y = Decimal(s.days_per_year)
+    aw = sorted((h for h in hs if h.channel == "awaed"), key=lambda h: (h.start, h.ident))
+    starts = sorted(h.start for h in aw)
+    rows = []
+    for h in aw:
+        if h.maturity > as_of:
+            continue
+        nxt = next((d for d in starts if d >= h.maturity), None)
+        days = ((nxt or as_of) - h.maturity).days
+        amount = h.principal + h.realised_net
+        rate = h.expected_net / h.principal * Y / h.contract_days if h.principal and h.contract_days else ZERO
+        rows.append({"order": h.ident, "matured": h.maturity, "amount": amount, "next_deposit": nxt,
+                     "days": days, "rate": rate, "profit_lost": amount * rate * days / Y, "waiting": nxt is None})
+    r.tables["rollovers"] = rows
+    gaps = [x for x in rows if x["days"] > 0]
+    r.add("awaed.rollover_idle_days", "Awaed days between maturity and the next deposit", sum(x["days"] for x in rows),
+          "n", [x["order"] for x in gaps], f"{len(gaps)} of {len(rows)} matured deposits waited at least a day")
+    r.add("awaed.rollover_profit_lost", "Profit forgone while Awaed money waited", sum((x["profit_lost"] for x in rows), ZERO),
+          "SAR", ("awaed.rollover_idle_days",), "Amount × the deposit's own annual rate × days waited ÷ 365")
+    late = [x for x in rows if x["waiting"] and x["days"] > s.rollover_alert_days]
+    status = "Alert" if late else "Within limit"
+    r.tables["policy"].append({
+        "check": f"Awaed money waiting to be rolled over more than {s.rollover_alert_days} days",
+        "actual": sum((x["amount"] for x in late), ZERO), "unit": "SAR",
+        "limit": f"≤ {s.rollover_alert_days} days", "status": status})
+    for x in late:
+        r.notes.append(f"Alert: Awaed order {x['order']} matured on {x['matured']:%d %b %Y} and SAR {x['amount']:,.2f} "
+                       f"has waited {x['days']} days for a new deposit (alert after {s.rollover_alert_days} days)")
 
 
 def _evidence(r: Report, contribs: list[Contribution], s: Settings, as_of: date) -> None:
