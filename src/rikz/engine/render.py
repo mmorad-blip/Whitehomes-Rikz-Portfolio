@@ -41,7 +41,9 @@ def assumptions(s: Settings) -> list[str]:
     out = list(ASSUMPTIONS)
     out.append(f"Credit provision: {s.provision_default:.0%} of defaulted and {s.provision_delay:.0%} of delayed "
                "principal (accounting view); the recovery view assumes 0% loss.")
-    out.append(f"Forecast credit loss per Manafa cycle: {s.forecast_loss_per_cycle:.0%}.")
+    out.append("Forecast credit loss per Manafa cycle: observed loss rate on funded Manafa principal."
+               if s.forecast_loss_per_cycle is None else
+               f"Forecast credit loss per Manafa cycle: {s.forecast_loss_per_cycle:.2%} (set in settings).")
     b = f"Benchmark 3M SAIBOR: {s.benchmark_saibor:.2%}"
     out.append(b + (" (placeholder – update in config/settings.toml)." if s.benchmark_is_placeholder else "."))
     return out

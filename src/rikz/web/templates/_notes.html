@@ -18,9 +18,27 @@
     {% if awaed_gaps and not pdf %}<details class="small"><summary>Awaed rollover detail ({{ awaed_gaps|length }} items)</summary><ul class="notes">
     {% for n in awaed_gaps %}<li>{{ n[6:] }}</li>{% endfor %}</ul></details>{% endif %}
   </div>
+  <div class="stack">
+  {% if tables.ledger %}
+  <div class="panel card table-card">
+    <div class="card-hd"><h2>Capital ledger evidence</h2><span class="unit-note">config/capital_ledger.toml</span></div>
+    <div class="table-wrap"><table><tr><th>Date</th><th>Contributor</th><th>Channel</th><th>Amount</th><th>Bank fee</th><th>Bank reference</th><th>Source document</th></tr>
+    {% for l in tables.ledger %}<tr><td>{{ l.date }}</td><td>{{ l.owner }}</td><td>{{ l.channel|title }}</td><td>{{ l.amount|sar }}</td><td>{{ l.bank_fee|sar }}</td><td>{{ l.bank_ref or "" }}{% if not l.bank_ref %}<span class="neg">Missing</span>{% endif %}</td><td>{{ l.evidence or "" }}{% if not l.evidence %}<span class="neg">Missing</span>{% endif %}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+  {% if config_changes %}
+  <div class="panel card table-card">
+    <div class="card-hd"><h2>Config change log</h2><span class="unit-note">config/change_log.toml</span></div>
+    <div class="table-wrap"><table><tr><th>Date</th><th>By</th><th>File</th><th>Setting</th><th>Old</th><th>New</th><th>Reason</th></tr>
+    {% for c in config_changes %}<tr><td>{{ c.date }}</td><td>{{ c.who }}</td><td>{{ c.file }}</td><td>{{ c.setting }}</td><td>{{ c.old }}</td><td>{{ c.new }}</td><td>{{ c.reason }}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
   <div class="panel card">
     <div class="card-hd"><h2>Assumptions</h2></div>
     <ol class="assume small">{% for a in doc.assumptions %}<li>{{ a }}</li>{% endfor %}</ol>
     {% if excel_rows %}<p class="muted small">"Excel" values are from the hand-kept model (V2.2) and are shown only where they differ from the statement-based figure.</p>{% endif %}
+  </div>
   </div>
 </div>

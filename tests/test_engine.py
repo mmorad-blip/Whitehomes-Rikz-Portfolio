@@ -81,7 +81,10 @@ def test_risk_24_sep(report):
     assert report.value("credit.opportunities") == 22
     policy = {row["check"]: row["status"] for row in report.tables["policy"]}
     assert policy["Max troubled exposure (% of total NAV, before provision)"] == "BREACH"
-    assert policy["Max idle cash (% of total NAV)"] == "BREACH"
+    # Awaed cash that matured within the grace period is in transit, not idle.
+    assert policy["Max idle cash (% of total NAV, excl. money matured ≤2 days)"] == "BREACH"
+    assert pct(report, "policy.max_idle_cash") < pct(report, "total.idle")
+    assert policy["Max share of Manafa outstanding in one rating (largest: B)"] == "BREACH"
 
 
 def test_wallets_agree_with_estimates(report):

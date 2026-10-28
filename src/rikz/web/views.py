@@ -149,17 +149,19 @@ def _period_sentence(cur: dict, prv: dict | None, label: str, prev_label: str) -
 def _summary(v, breaches: list[dict]) -> Markup:
     nav, contrib, real = v("total.nav"), v("total.contributed"), v("total.realised")
     parts = []
-    if nav is not None and contrib:
+    gain = v("total.net_gain")
+    if gain is None and nav is not None and contrib:
         gain = nav - contrib
-        parts.append(Markup("NAV of <strong>SAR {}</strong> against SAR {} contributed, a net {} of SAR {} ({:+.2f}%).")
+    if nav is not None and contrib and gain is not None:
+        parts.append(Markup("NAV of <strong>SAR {}</strong> against SAR {} contributed, a net {} of SAR {} ({:+.2f}%) "
+                            "after fees.")
                      .format(f"{nav:,.2f}", f"{contrib:,.2f}", "gain" if gain >= 0 else "loss", f"{abs(gain):,.2f}",
                              gain / contrib * 100))
     if real is not None:
         parts.append(Markup("Realised profit stands at <strong>SAR {}</strong>.").format(f"{real:,.2f}"))
-    x, xr = v("total.xirr"), v("total.xirr_recovery")
-    if x is not None and xr is not None:
-        parts.append(Markup("The money-weighted return is <strong>{:.2f}%</strong> a year on the accounting view and "
-                            "{:.2f}% if defaulted principal is recovered in full.").format(x * 100, xr * 100))
+    x = v("total.xirr")
+    if x is not None:
+        parts.append(Markup("The money-weighted return (XIRR) is <strong>{:.2f}%</strong> a year.").format(x * 100))
     idle, troubled = v("total.idle"), v("credit.troubled_total_nav")
     if idle is not None and troubled is not None:
         parts.append(Markup("Idle cash is {:.1f}% of NAV and troubled exposure {:.1f}%.").format(idle * 100, troubled * 100))
@@ -292,8 +294,7 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
         ("Open positions", str(sum(open_n.values())),
          " · ".join(f"{n} {s}" for s, n in open_n.items() if n) or "none open"),
         ("XIRR since inception", f"{v('total.xirr') * 100:.2f}%" if v("total.xirr") is not None else "–",
-         f"{v('total.xirr_recovery') * 100:.2f}% if defaults recover in full"
-         if v("total.xirr_recovery") is not None else ""),
+         "Accounting view, net of provisions"),
         ("Manafa statement to", date.fromisoformat(cov["manafa"]["statement_to"]).strftime("%d %b %Y"),
          f"{cov['awaed']['confirmations']} Awaed confirmations"),
     ]
@@ -321,7 +322,8 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
     ladder = t.get("liquidity", [])
     excel_rows = [(k, f) for k, f in figs.items() if f["excel"] is not None]
     steps = [("Contributed", v("total.contributed")), ("Realised", v("total.realised")),
-             ("Accrued", v("total.accrued")), ("Provision", v("total.provision"))]
+             ("Accrued", v("total.accrued")), ("Provision", v("total.provision")),
+             ("Fees", -abs(v("total.fees")) if v("total.fees") else None)]
     steps = [(n, val) for n, val in steps if val is not None]
     other = (v("total.nav") or 0) - sum((val for _, val in steps), Decimal(0))
     if abs(other) >= Decimal("0.5"):
@@ -354,8 +356,9 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
                                        ("Actual", [D(r["actual_sar"]) for r in t.get("allocation", [])])],
                                       title="Allocation vs policy", literal=pdf),
             "waterfall": charts.waterfall(steps, "NAV", title="How capital became NAV", literal=pdf) if steps else "",
-            "ratings": charts.hbars([(f"{r['rating']} · {r['positions']} pos", D(r["outstanding"])) for r in ratings],
-                                    slot=2, title="Outstanding exposure by rating", literal=pdf),
+            "ratings": charts.hbars([(f"{r['rating']} · {r['positions']} ever funded", D(r["outstanding"]))
+                                     for r in ratings if "not rated" not in str(r["rating"]).lower()],
+                                    slot=2, title="Manafa outstanding exposure by rating", literal=pdf),
         },
         "legends": {
             "nav": [(n, c, val, (val / nav_total) if nav_total and val else None)
@@ -365,15 +368,24 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
             "allocation": charts.legend(["Target", "Actual"], pdf),
         },
         "change_groups": _group_changes(snapshot.changes),
+        "config_changes": _config_changes(),
         "notes_main": [n for n in doc["notes"] if not n.startswith("Awaed [")],
         "awaed_gaps": [n for n in doc["notes"] if n.startswith("Awaed [")],
         "awaed_gap_summary": _gap_summary([n for n in doc["notes"] if n.startswith("Awaed [")]),
         "channels": ("awaed", "manafa", "total"),
         "returns_rows": ["contributed", "fees", "realised", "active", "delayed", "defaulted", "provision", "accrued",
-                         "wallet", "nav", "net_gain", "roc", "xirr", "nav_recovery", "xirr_recovery", "cw_yield",
-                         "avg_deal_yield", "utilisation", "utilisation_excel", "idle", "vs_target", "vs_benchmark"],
+                         "wallet", "nav", "net_gain", "roc", "xirr", "xirr_expected", "cw_yield",
+                         "avg_deal_yield", "utilisation", "idle", "vs_target", "vs_benchmark"],
         "credit_keys": [k for k in figs if k.startswith("credit.")],
     }
+
+
+def _config_changes():
+    from rikz.config import load_change_log
+    try:
+        return load_change_log()
+    except Exception:  # a malformed log must not take the report down
+        return []
 
 
 def _ended(h: dict):
