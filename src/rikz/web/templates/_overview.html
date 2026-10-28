@@ -79,7 +79,7 @@
   <div class="card-hd"><h2>Policy checks</h2><span class="unit-note">{{ tables.policy|selectattr("status", "equalto", "BREACH")|list|length }} of {{ tables.policy|length }} breached</span></div>
   <div class="table-wrap"><table>
   <tr><th>Check</th><th>Actual</th><th>Limit / target</th><th>Status</th></tr>
-  {% for r in tables.policy %}<tr><td>{{ r.check }}</td><td>{{ r.actual|pct }}</td><td>{{ r.limit }}</td>
-  <td><span class="badge {{ 'bad' if r.status in ('BREACH','Below expected') else 'ok' if r.status in ('Within limit','Within range','Above expected') else 'info' }}">{{ r.status }}</span></td></tr>{% endfor %}
+  {% for r in tables.policy %}<tr><td>{{ r.check }}</td><td>{{ r.actual|value(r.unit or "ratio") }}</td><td>{{ r.limit }}</td>
+  <td><span class="badge {{ 'bad' if r.status in ('BREACH','Below expected','Alert') else 'ok' if r.status in ('Within limit','Within range','Above expected') else 'info' }}">{{ r.status }}</span></td></tr>{% endfor %}
   </table></div>
 </div>

@@ -89,6 +89,15 @@
   {% for k in ("forecast.total", "forecast.manafa_share_needed") %}{% if figs.get(k) and figs[k].note %}<p class="muted small card-foot">{{ figs[k].note }}</p>{% endif %}{% endfor %}
 </div>
 
+{% if tables.rollovers %}{% set gaps = tables.rollovers|selectattr("days", "gt", 0)|list %}
+<div class="panel card table-card keep">
+  <div class="card-hd"><h2>Awaed rollover gaps</h2><span class="unit-note">{% if figs.get("awaed.rollover_profit_lost") %}{{ figs["awaed.rollover_idle_days"].value|value("n") }} days idle · {{ figs["awaed.rollover_profit_lost"].value|sar }} SAR profit forgone{% endif %}</span></div>
+  {% if gaps %}<div class="table-wrap"><table><tr><th>Order</th><th>Matured</th><th>Amount</th><th>Next deposit</th><th>Days waited</th><th>Rate</th><th>Profit forgone</th></tr>
+  {% for x in gaps %}<tr><td>{{ x.order }}</td><td>{{ x.matured }}</td><td>{{ x.amount|sar }}</td><td>{% if x.waiting %}<span class="neg">Still waiting</span>{% else %}{{ x.next_deposit }}{% endif %}</td><td>{{ x.days }}</td><td>{{ x.rate|pct }}</td><td>{{ x.profit_lost|sar }}</td></tr>{% endfor %}
+  </table></div>{% else %}<p class="muted small card-foot">Every matured deposit was rolled over the same day.</p>{% endif %}
+</div>
+{% endif %}
+
 <div class="panel card table-card">
   <div class="card-hd"><h2>Monthly</h2><span class="unit-note">SAR</span></div>
   <div class="table-wrap"><table><tr><th>Month</th><th>Contributed</th><th>Awaed realised</th><th>Manafa realised</th><th>Cumulative realised</th><th>Expected (open)</th><th>New Manafa</th><th>Principal maturing</th><th>NAV at month end</th></tr>
