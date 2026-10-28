@@ -24,19 +24,26 @@ MAX_REQUEST_BYTES = 100 * 1024 * 1024
 COOKIE = {"shareholder": "rikz_v", "admin": "rikz_a"}
 
 
+def _missing(v) -> bool:
+    """Reports saved before a field existed leave it undefined; show a dash instead of failing."""
+    from jinja2 import Undefined
+
+    return v is None or isinstance(v, Undefined) or v == ""
+
+
 def fmt_sar(v, signed: bool = False) -> str:
-    if v is None:
+    if _missing(v):
         return "–"
     v = Decimal(v)
     return f"{v:+,.2f}" if signed else f"{v:,.2f}"
 
 
 def fmt_pct(v, dp: int = 2) -> str:
-    return "–" if v is None else f"{Decimal(v) * 100:.{dp}f}%"
+    return "–" if _missing(v) else f"{Decimal(v) * 100:.{dp}f}%"
 
 
 def fmt_value(v, unit: str) -> str:
-    if v is None:
+    if _missing(v):
         return "–"
     if unit == "SAR":
         return fmt_sar(v)
