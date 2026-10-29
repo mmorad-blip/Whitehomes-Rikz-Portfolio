@@ -11,6 +11,7 @@
     {% for label, val, sub in hero.facts %}
     <div class="fact"><dt>{{ label }}</dt><dd class="fact-val">{{ val }}</dd>{% if sub %}<dd class="fact-sub">{{ sub }}</dd>{% endif %}</div>
     {% endfor %}
+  {% if hero.benchmark %}<div class="fact wide"><dt>3M SAIBOR benchmark</dt><dd class="fact-val">{{ hero.benchmark.value }}{% if hero.benchmark.status == "warn" %} <span class="badge warn">Check</span>{% endif %}</dd><dd class="fact-sub">{{ hero.benchmark.sub }}</dd></div>{% endif %}
   </dl>
 </section>
 

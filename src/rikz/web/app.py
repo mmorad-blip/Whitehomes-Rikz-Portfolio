@@ -90,6 +90,11 @@ def create_app(store, access: AccessConfig, notices=None) -> FastAPI:
                                           status_code=400)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters.update(sar=fmt_sar, pct=fmt_pct, value=fmt_value)
+    # Jinja treats an undefined field as "not none", so `x is not none and x|float` crashes on
+    # reports saved before x existed. Count undefined as none everywhere.
+    from jinja2 import Undefined
+
+    templates.env.tests["none"] = lambda v: v is None or isinstance(v, Undefined)
     templates.env.globals["access"] = access
     app.state.store, app.state.access, app.state.templates = store, access, templates
 

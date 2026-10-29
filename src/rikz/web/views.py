@@ -174,6 +174,25 @@ def _summary(v, breaches: list[dict]) -> Markup:
     return Markup(" ").join(parts)
 
 
+def saibor_fact(as_of: date) -> dict | None:
+    """The 3M SAIBOR benchmark as currently set in config/settings.toml."""
+    from ..config import load_settings
+    from ..errors import Rejected
+
+    try:
+        s = load_settings()
+    except (Rejected, KeyError, ValueError, ArithmeticError):
+        return None
+    if s.benchmark_is_placeholder:
+        sub, status = "Placeholder, not yet entered from the official source", "warn"
+    else:
+        parts = [f"as of {s.benchmark_as_of:%d %b %Y}" if s.benchmark_as_of else "no as-of date",
+                 s.benchmark_source]
+        sub = " · ".join(p for p in parts if p)
+        status = "warn" if s.benchmark_warning(as_of) else "ok"
+    return {"value": f"{s.benchmark_saibor * 100:.2f}%", "sub": sub, "status": status}
+
+
 def build(snapshot, versions: list, pdf: bool = False, headline_override: str | None = None,
           period: str = periods.DEFAULT) -> dict:
     doc = json.loads(snapshot.report)
@@ -298,6 +317,7 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
         ("Manafa statement to", date.fromisoformat(cov["manafa"]["statement_to"]).strftime("%d %b %Y"),
          f"{cov['awaed']['confirmations']} Awaed confirmations"),
     ]
+    benchmark = saibor_fact(as_of)
     auto = auto_headline(v, cur, prv, cur_w.label(), prev_w.label())
     hero = {
         "headline": headline_override or auto,
@@ -307,6 +327,7 @@ def build(snapshot, versions: list, pdf: bool = False, headline_override: str | 
         "badge": ((f"{len(breaches)} policy {'breach' if len(breaches) == 1 else 'breaches'}", "bad") if breaches
                   else (f"{len(below)} below expected", "warn") if below else ("Within policy", "ok")),
         "facts": facts,
+        "benchmark": benchmark,
         "liquid": liquid,
     }
     comp = [
